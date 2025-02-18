@@ -580,10 +580,10 @@ bot.action(/stats_(.+)/, async (ctx) => {
             lastReviews.forEach(review => {
                 const name = escapeMarkdown(review.first_name + (review.last_name ? ` ${review.last_name}` : ''));
                 
-                message += `\n- От ${isAdmin(ctx.from.id) ? name : 'Аноним'}\n`;
+                message += `\n- От ${isAdmin(ctx.from.id) ? escapeMarkdown(name) : 'Аноним'}\n`;
                 const truncatedFeedback = review.text_feedback.length > MAX_FEEDBACK_LENGTH 
-                    ? escapeMarkdown(review.text_feedback.substring(0, MAX_FEEDBACK_LENGTH)) 
-                    : escapeMarkdown(review.text_feedback);
+                    ? review.text_feedback.substring(0, MAX_FEEDBACK_LENGTH) 
+                    : review.text_feedback;
                 message += `  Отзыв: ${truncatedFeedback}\n`;
                 message += `  Дата: ${new Date(review.created_at).toLocaleDateString('ru-RU')}\n`;
             });
