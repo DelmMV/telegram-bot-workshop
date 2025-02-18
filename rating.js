@@ -178,11 +178,11 @@ function formatFeedbackMessage(feedback, includeDeleteButton = true) {
     const userName = escapeMarkdown(feedback.first_name + (feedback.last_name ? ` ${feedback.last_name}` : ''));
     
     message += `👤 Пользователь: ${userName} (ID: ${feedback.user_id})\n`;
-    message += `🏢 Мастерская: ${escapeMarkdown(feedback.workshop)}\n`;
+    message += `🏢 Мастерская: ${feedback.workshop}\n`;
     message += `⭐️ Качество: ${feedback.quality_rating}\n`;
     message += `💬 Коммуникация: ${feedback.communication_rating}\n`;
     message += `⏰ Вовремя: ${feedback.on_time}\n`;
-    message += `📝 Отзыв: ${escapeMarkdown(feedback.text_feedback)}\n`;
+    message += `📝 Отзыв: ${feedback.text_feedback}\n`;
     message += `📅 Дата: ${new Date(feedback.created_at).toLocaleString()}\n`;
     
     if (includeDeleteButton) {
