@@ -990,8 +990,26 @@ bot.action('admin_back', async ctx => {
 })
 
 // Обработчики основного меню
-bot.hears('👍 Проголосовать', ctx => {
-	ctx.scene.enter('workshop')
+bot.hears('👍 Проголосовать', async ctx => {
+	try {
+		const canVote = await canUserVote(ctx.from.id)
+
+		if (!canVote) {
+			await ctx.reply(
+				'⚠️ Вы уже голосовали сегодня. Следующее голосование будет доступно завтра.',
+				getMainKeyboard()
+			)
+			return
+		}
+
+		ctx.scene.enter('workshop')
+	} catch (error) {
+		console.error('Error in vote handler:', error)
+		await ctx.reply(
+			'Произошла ошибка при проверке возможности голосования.',
+			getMainKeyboard()
+		)
+	}
 })
 
 bot.hears('📋 Список сервисов', async ctx => {
@@ -1178,6 +1196,37 @@ bot.action('back_to_rating_menu', async ctx => {
 		])
 	)
 })
+
+// Добавим функцию проверки последнего голосования пользователя
+async function canUserVote(userId) {
+	// Если пользователь админ - разрешаем голосовать всегда
+	if (isAdmin(userId)) {
+		return true
+	}
+
+	try {
+		const lastFeedback = await db
+			.collection('feedback')
+			.findOne({ user_id: userId }, { sort: { created_at: -1 } })
+
+		if (!lastFeedback) {
+			return true // Пользователь еще не голосовал
+		}
+
+		const lastVoteDate = new Date(lastFeedback.created_at)
+		const currentDate = new Date()
+
+		// Сбрасываем время до начала дня для корректного сравнения
+		lastVoteDate.setHours(0, 0, 0, 0)
+		currentDate.setHours(0, 0, 0, 0)
+
+		// Проверяем, прошел ли один день
+		return lastVoteDate.getTime() < currentDate.getTime()
+	} catch (error) {
+		console.error('Error checking user vote:', error)
+		return false
+	}
+}
 
 // Подключение к MongoDB и запуск бота
 async function setupDatabase() {
