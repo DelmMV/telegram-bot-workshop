@@ -175,7 +175,7 @@ async function getLastReviews(workshop, limit = 3) {
 
 function formatFeedbackMessage(feedback, includeDeleteButton = true) {
     let message = '';
-    const userName = escapeMarkdown(feedback.first_name + (feedback.last_name ? ` ${feedback.last_name}` : ''));
+    const userName = feedback.first_name + (feedback.last_name ? ` ${feedback.last_name}` : '');
     
     message += `👤 Пользователь: ${userName} (ID: ${feedback.user_id})\n`;
     message += `🏢 Мастерская: ${feedback.workshop}\n`;
@@ -652,16 +652,22 @@ bot.action('admin_all_feedbacks', async (ctx) => {
 
             const messages = [];
             let currentMessage = `📊 Последние ${feedbacks.length} отзывов:\n\n`;
-            
+            options = {  
+              year: "numeric",
+              month: "numeric",
+              day: "numeric",
+              hours: "numeric",
+              minutes: "numeric",
+            };
             for (const feedback of feedbacks) {
-                const userName = escapeMarkdown(feedback.first_name + (feedback.last_name ? ` ${feedback.last_name}` : ''));
+                const userName = feedback.first_name + (feedback.last_name ? ` ${feedback.last_name}` : '');
                 let feedbackMessage = `👤 Пользователь: ${userName} (ID: ${feedback.user_id})\n`;
-                feedbackMessage += `🏢 Мастерская: ${escapeMarkdown(feedback.workshop)}\n`;
+                feedbackMessage += `🏢 Мастерская: ${feedback.workshop}\n`;
                 feedbackMessage += `⭐️ Качество: ${feedback.quality_rating}\n`;
                 feedbackMessage += `💬 Коммуникация: ${feedback.communication_rating}\n`;
                 feedbackMessage += `⏰ Вовремя: ${feedback.on_time}\n`;
-                feedbackMessage += `📝 Отзыв: ${escapeMarkdown(feedback.text_feedback)}\n`;
-                feedbackMessage += `📅 Дата: ${new Date(feedback.created_at).toLocaleString()}\n`;
+                feedbackMessage += `📝 Отзыв: ${feedback.text_feedback}\n`;
+                feedbackMessage += `📅 Дата: ${new Date(feedback.created_at).toLocaleString("ru-RU")}\n`;
                 feedbackMessage += `🗑 Удалить: /delete_feedback ${feedback._id}\n\n`;
 
                 if (currentMessage.length + feedbackMessage.length > 3800) {
