@@ -6,6 +6,8 @@ const config = require('./config');
 // Инициализация бота
 const bot = new Telegraf(config.BOT_TOKEN);
 const ADMIN_CHAT_ID = config.ADMIN_CHAT_ID;
+//ограничим для комментариев по символами
+const MAX_FEEDBACK_LENGTH = 1000;
 // MongoDB connection
 const mongoClient = new MongoClient(config.MONGODB_URI);
 let db;
@@ -48,6 +50,12 @@ async function notifyAdminsAboutNewFeedback(ctx, feedback) {
     try {
         const workshop = await db.collection('workshops').findOne({ name: feedback.workshop });
         
+        // Обрезаем текст отзыва, если он слишком длинный
+        const maxFeedbackLength = MAX_FEEDBACK_LENGTH; // Можно настроить по необходимости
+        const truncatedFeedback = feedback.text_feedback.length > maxFeedbackLength 
+            ? feedback.text_feedback.substring(0, maxFeedbackLength) + '...'
+            : feedback.text_feedback;
+
         let message = '📝 <b>Новый отзыв!</b>\n\n';
         message += `👤 <b>Пользователь:</b> ${escapeHTML(feedback.first_name)}`;
         if (feedback.last_name) message += ` ${escapeHTML(feedback.last_name)}`;
@@ -64,7 +72,7 @@ async function notifyAdminsAboutNewFeedback(ctx, feedback) {
         message += `💬 Коммуникация: ${feedback.communication_rating}/5\n`;
         message += `⏰ Выполнено вовремя: ${feedback.on_time}\n\n`;
         
-        message += `💭 <b>Отзыв:</b> ${escapeHTML(feedback.text_feedback)}\n\n`;
+        message += `💭 <b>Отзыв:</b> ${escapeHTML(truncatedFeedback)}\n\n`;
         
         // Добавляем текущую статистику мастерской
         const stats = await getWorkshopStats(feedback.workshop);
@@ -150,11 +158,19 @@ async function getWorkshopStats(workshop) {
 }
 
 async function getLastReviews(workshop, limit = 3) {
-    return await db.collection('feedback')
+    // Получаем все отзывы для мастерской
+    const allReviews = await db.collection('feedback')
         .find({ workshop: workshop })
         .sort({ created_at: -1 })
-        .limit(limit)
         .toArray();
+    
+    // Фильтруем отзывы, оставляя только те, где есть текстовый комментарий
+    const reviewsWithText = allReviews.filter(review => 
+        review.text_feedback && review.text_feedback.trim() !== ''
+    );
+    
+    // Возвращаем первые 3 отзыва с текстом
+    return reviewsWithText.slice(0, limit);
 }
 
 function formatFeedbackMessage(feedback, includeDeleteButton = true) {
@@ -266,12 +282,34 @@ communicationScene.on('text', (ctx) => {
 
 const textFeedbackScene = new Scenes.BaseScene('textFeedback');
 textFeedbackScene.enter((ctx) => {
-    ctx.reply('Пожалуйста, напишите ваш отзыв о мастерской:',
-        Markup.removeKeyboard());
+    ctx.reply(
+        `Пожалуйста, напишите ваш отзыв о мастерской (максимум ${MAX_FEEDBACK_LENGTH} символов)\n` +
+        'или нажмите кнопку "Пропустить" если не хотите оставлять текстовый отзыв:',
+        Markup.keyboard([['Пропустить']])
+        .oneTime()
+        .resize()
+    );
 });
 
 textFeedbackScene.on('text', async (ctx) => {
-    ctx.session.textFeedback = ctx.message.text;
+    // Проверяем, хочет ли пользователь пропустить текстовый отзыв
+    if (ctx.message.text === 'Пропустить') {
+        ctx.session.textFeedback = ''; // Пустой текстовый отзыв
+    } else {
+        // Проверка длины отзыва
+        if (ctx.message.text.length > MAX_FEEDBACK_LENGTH) {
+            await ctx.reply(
+                `⚠️ Отзыв слишком длинный. Максимальная длина - ${MAX_FEEDBACK_LENGTH} символов.\n` +
+                `Ваш текст содержит ${ctx.message.text.length} символов.\n\n` +
+                `Пожалуйста, сократите отзыв и отправьте снова, или нажмите "Пропустить":`,
+                Markup.keyboard([['Пропустить']])
+                .oneTime()
+                .resize()
+            );
+            return;
+        }
+        ctx.session.textFeedback = ctx.message.text;
+    }
     
     const feedback = {
         user_id: ctx.from.id,
@@ -289,7 +327,7 @@ textFeedbackScene.on('text', async (ctx) => {
     try {
         // Сохраняем отзыв в базу данных
         const result = await db.collection('feedback').insertOne(feedback);
-        feedback._id = result.insertedId; // Добавляем ID для использования в уведомлении
+        feedback._id = result.insertedId;
 
         // Отправляем сообщение пользователю
         await ctx.reply('Спасибо за ваш отзыв!', mainKeyboard);
@@ -514,15 +552,11 @@ bot.command('set_admin_chat', async (ctx) => {
         await ctx.reply('Произошла ошибка при установке админского чата.');
     }
 });
-
 bot.action(/stats_(.+)/, async (ctx) => {
-  const userId = ctx.update.callback_query.from.id;
-
     try {
         await ctx.answerCbQuery();
         const workshopName = ctx.match[1];
         
-        // Получаем информацию о мастерской
         const workshop = await db.collection('workshops').findOne({ name: workshopName });
         if (!workshop) {
             await ctx.reply('Мастерская не найдена.');
@@ -532,7 +566,7 @@ bot.action(/stats_(.+)/, async (ctx) => {
         const stats = await getWorkshopStats(workshopName);
         const lastReviews = await getLastReviews(workshopName, 3);
 
-        let message = `📊 *${workshop.name}*\n\n`;
+        let message = `📊 ${workshop.name}\n\n`;
         message += `📍 Адрес: ${workshop.address}\n`;
         message += `ℹ️ Описание: ${workshop.description}\n\n`;
         message += `📝 Всего отзывов: ${stats.total_reviews}\n`;
@@ -540,17 +574,17 @@ bot.action(/stats_(.+)/, async (ctx) => {
         message += `💬 Средняя оценка коммуникации: ${stats.avg_communication ? stats.avg_communication.toFixed(2) : '0'}\n`;
         message += `✅ Выполнено вовремя: ${stats.on_time_count}\n`;
         message += `❌ С задержкой: ${stats.delayed_count}\n\n`;
-
+        
         if (lastReviews && lastReviews.length > 0) {
-          
             message += '📌 *Последние отзывы:*\n';
             lastReviews.forEach(review => {
                 const name = escapeMarkdown(review.first_name + (review.last_name ? ` ${review.last_name}` : ''));
-                message += `\n- От ${isAdmin(userId) ? name : 'Аноним'}\n`;
-                message += `  Качество: ${review.quality_rating}⭐️\n`;
-                message += `  Коммуникация: ${review.communication_rating}⭐️\n`;
-                message += `  Вовремя: ${review.on_time}\n`;
-                message += `  Отзыв: ${escapeMarkdown(review.text_feedback)}\n`;
+                
+                message += `\n- От ${isAdmin(ctx.from.id) ? name : 'Аноним'}\n`;
+                const truncatedFeedback = review.text_feedback.length > MAX_FEEDBACK_LENGTH 
+                    ? escapeMarkdown(review.text_feedback.substring(0, MAX_FEEDBACK_LENGTH)) 
+                    : escapeMarkdown(review.text_feedback);
+                message += `  Отзыв: ${truncatedFeedback}\n`;
                 message += `  Дата: ${new Date(review.created_at).toLocaleDateString('ru-RU')}\n`;
             });
         }
