@@ -192,6 +192,12 @@ async function getWorkshopsList() {
 
 	for (const workshop of workshops) {
 		const stats = await getWorkshopStats(workshop.name)
+		const onTimeCount = stats.total_reviews - stats.delayed_count
+		const onTimePercentage =
+			stats.total_reviews > 0
+				? ((onTimeCount / stats.total_reviews) * 100).toFixed(1)
+				: '0'
+
 		workshopsData.push({
 			name: workshop.name,
 			address: workshop.address,
@@ -201,7 +207,7 @@ async function getWorkshopsList() {
 				? stats.avg_communication.toFixed(2)
 				: '0',
 			total_reviews: stats.total_reviews,
-			delayed_count: stats.delayed_count,
+			on_time_percentage: onTimePercentage,
 		})
 	}
 
@@ -220,7 +226,7 @@ function formatWorkshopsListMessage(workshops) {
 		message += `ℹ️ *Описание:* ${workshop.description}\n`
 		message += `⭐️ *Средняя оценка качества:* ${workshop.avg_quality}/5\n`
 		message += `💬 *Средняя оценка коммуникации:* ${workshop.avg_communication}/5\n`
-		message += `❌ *С задержкой:* ${workshop.delayed_count}\n`
+		message += `✅ *Выполнено вовремя:* ${workshop.on_time_percentage}%\n`
 		message += `📝 *Всего отзывов:* ${workshop.total_reviews}\n\n`
 	})
 	return message
@@ -570,9 +576,9 @@ bot.use(stage.middleware())
 
 // Обработчики команд
 bot.command('start', ctx => {
-    if (ctx.chat.type !== 'private') {
-        return; // Просто игнорируем команду в групповых чатах
-    }
+	if (ctx.chat.type !== 'private') {
+		return // Просто игнорируем команду в групповых чатах
+	}
 	ctx.reply(
 		'Привет! Выберите действие:',
 		getMainKeyboard() // Используем функцию
@@ -1107,21 +1113,26 @@ bot.action('rating_communication', async ctx => {
 bot.action('rating_delays', async ctx => {
 	const workshops = await getWorkshopsList()
 	workshops.sort((a, b) => {
-		const percentA =
-			a.total_reviews > 0 ? (a.delayed_count / a.total_reviews) * 100 : 0
-		const percentB =
-			b.total_reviews > 0 ? (b.delayed_count / b.total_reviews) * 100 : 0
-		return percentB - percentA
+		const onTimePercentA =
+			a.total_reviews > 0
+				? ((a.total_reviews - a.delayed_count) / a.total_reviews) * 100
+				: 0
+		const onTimePercentB =
+			b.total_reviews > 0
+				? ((b.total_reviews - b.delayed_count) / b.total_reviews) * 100
+				: 0
+		return onTimePercentB - onTimePercentA
 	})
 
 	let message = '📊 *Рейтинг по соблюдению сроков:*\n\n'
 	workshops.forEach((workshop, index) => {
-		const delayPercentage =
+		const onTimeCount = workshop.total_reviews - workshop.delayed_count
+		const onTimePercentage =
 			workshop.total_reviews > 0
-				? ((workshop.delayed_count / workshop.total_reviews) * 100).toFixed(1)
+				? ((onTimeCount / workshop.total_reviews) * 100).toFixed(1)
 				: 0
 		message += `${index + 1}. *${workshop.name}*\n`
-		message += `❌ Задержки: ${workshop.delayed_count} из ${workshop.total_reviews} (${delayPercentage}%)\n`
+		message += `✅ Выполнено вовремя: ${onTimePercentage}%\n`
 		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
 	})
 
