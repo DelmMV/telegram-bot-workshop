@@ -191,27 +191,38 @@ async function getWorkshopsList() {
 	const workshopsData = []
 
 	for (const workshop of workshops) {
-		const stats = await getWorkshopStats(workshop.name)
-		const onTimeCount = stats.total_reviews - stats.delayed_count
+		const feedbacks = await db
+			.collection('feedback')
+			.find({ workshop: workshop.name })
+			.toArray()
+
+		const total_reviews = feedbacks.length
+		const on_time_count = feedbacks.filter(f => f.on_time === 'Да').length
+
 		const onTimePercentage =
-			stats.total_reviews > 0
-				? ((onTimeCount / stats.total_reviews) * 100).toFixed(1)
-				: '0'
+			total_reviews > 0
+				? ((on_time_count / total_reviews) * 100).toFixed(1)
+				: '0.0'
 
 		workshopsData.push({
 			name: workshop.name,
 			address: workshop.address,
 			description: workshop.description,
-			avg_quality: stats.avg_quality ? stats.avg_quality.toFixed(2) : '0',
-			avg_communication: stats.avg_communication
-				? stats.avg_communication.toFixed(2)
-				: '0',
-			total_reviews: stats.total_reviews,
+			avg_quality: calculateAverage(feedbacks, 'quality_rating'),
+			avg_communication: calculateAverage(feedbacks, 'communication_rating'),
+			total_reviews: total_reviews,
+			on_time_count: on_time_count,
 			on_time_percentage: onTimePercentage,
 		})
 	}
 
 	return workshopsData
+}
+
+function calculateAverage(feedbacks, field) {
+	if (feedbacks.length === 0) return '0.00'
+	const sum = feedbacks.reduce((acc, curr) => acc + (curr[field] || 0), 0)
+	return (sum / feedbacks.length).toFixed(2)
 }
 
 function formatWorkshopsListMessage(workshops) {
@@ -1112,25 +1123,23 @@ bot.action('rating_communication', async ctx => {
 
 bot.action('rating_delays', async ctx => {
 	const workshops = await getWorkshopsList()
+
+	// Сортируем по проценту выполненных вовремя (от большего к меньшему)
 	workshops.sort((a, b) => {
 		const onTimePercentA =
-			a.total_reviews > 0
-				? ((a.total_reviews - a.delayed_count) / a.total_reviews) * 100
-				: 0
+			a.total_reviews > 0 ? (a.on_time_count / a.total_reviews) * 100 : 0
 		const onTimePercentB =
-			b.total_reviews > 0
-				? ((b.total_reviews - b.delayed_count) / b.total_reviews) * 100
-				: 0
+			b.total_reviews > 0 ? (b.on_time_count / b.total_reviews) * 100 : 0
 		return onTimePercentB - onTimePercentA
 	})
 
 	let message = '📊 *Рейтинг по соблюдению сроков:*\n\n'
 	workshops.forEach((workshop, index) => {
-		const onTimeCount = workshop.total_reviews - workshop.delayed_count
 		const onTimePercentage =
 			workshop.total_reviews > 0
-				? ((onTimeCount / workshop.total_reviews) * 100).toFixed(1)
-				: 0
+				? ((workshop.on_time_count / workshop.total_reviews) * 100).toFixed(1)
+				: '0.0'
+
 		message += `${index + 1}. *${workshop.name}*\n`
 		message += `✅ Выполнено вовремя: ${onTimePercentage}%\n`
 		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
