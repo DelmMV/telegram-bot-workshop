@@ -1103,7 +1103,13 @@ bot.action('rating_communication', async ctx => {
 
 bot.action('rating_delays', async ctx => {
 	const workshops = await getWorkshopsList()
-	workshops.sort((a, b) => a.delayed_count - b.delayed_count)
+	workshops.sort((a, b) => {
+		const percentA =
+			a.total_reviews > 0 ? (a.delayed_count / a.total_reviews) * 100 : 0
+		const percentB =
+			b.total_reviews > 0 ? (b.delayed_count / b.total_reviews) * 100 : 0
+		return percentB - percentA
+	})
 
 	let message = '📊 *Рейтинг по соблюдению сроков:*\n\n'
 	workshops.forEach((workshop, index) => {
@@ -1112,7 +1118,7 @@ bot.action('rating_delays', async ctx => {
 				? ((workshop.delayed_count / workshop.total_reviews) * 100).toFixed(1)
 				: 0
 		message += `${index + 1}. *${workshop.name}*\n`
-		message += `❌ Задержки: ${workshop.delayed_count} (${delayPercentage}%)\n`
+		message += `❌ Задержки: ${workshop.delayed_count} из ${workshop.total_reviews} (${delayPercentage}%)\n`
 		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
 	})
 
