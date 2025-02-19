@@ -570,6 +570,9 @@ bot.use(stage.middleware())
 
 // Обработчики команд
 bot.command('start', ctx => {
+    if (ctx.chat.type !== 'private') {
+        return; // Просто игнорируем команду в групповых чатах
+    }
 	ctx.reply(
 		'Привет! Выберите действие:',
 		getMainKeyboard() // Используем функцию
