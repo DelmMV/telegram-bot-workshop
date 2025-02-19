@@ -35,6 +35,7 @@ async function getWorkshops() {
 		const workshops = await db
 			.collection('workshops')
 			.find({})
+			.collation({ locale: 'ru' })
 			.sort({ name: 1 })
 			.toArray()
 		return workshops
