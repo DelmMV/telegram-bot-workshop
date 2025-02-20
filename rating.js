@@ -1013,15 +1013,15 @@ bot.action('admin_back', async ctx => {
 // Обработчики основного меню
 bot.hears('👍 Оставить отзыв', async ctx => {
 	try {
-		const canVote = await canUserVote(ctx.from.id)
+		// const canVote = await canUserVote(ctx.from.id)
 
-		if (!canVote) {
-			await ctx.reply(
-				'⚠️ Вы уже голосовали сегодня. Следующее голосование будет доступно завтра.',
-				getMainKeyboard()
-			)
-			return
-		}
+		// if (!canVote) {
+		// 	await ctx.reply(
+		// 		'⚠️ Вы уже голосовали сегодня. Следующее голосование будет доступно завтра.',
+		// 		getMainKeyboard()
+		// 	)
+		// 	return
+		// }
 
 		ctx.scene.enter('workshop')
 	} catch (error) {
