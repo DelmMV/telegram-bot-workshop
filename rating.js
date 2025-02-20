@@ -69,7 +69,7 @@ async function notifyAdminsAboutNewFeedback(ctx, feedback) {
 			message += `📍 <b>Адрес:</b> ${escapeHTML(workshop.address)}\n`
 		}
 
-		message += `\n📊 <b>Оценки:</b>\n`
+		message += `📊 <b>Оценки:</b>\n`
 		message += `⭐️ Качество: ${feedback.quality_rating}/5\n`
 		message += `💬 Коммуникация: ${feedback.communication_rating}/5\n`
 		message += `⏰ Выполнено вовремя: ${feedback.on_time}\n\n`
@@ -277,8 +277,8 @@ function getAdminKeyboard() {
 
 // Создаем клавиатуру для главного меню
 const mainKeyboard = Markup.keyboard([
-	['👍 Оставить отзыв', '�� Рейтинг/Отзывы'],
-	['�� Список сервисов'],
+	['👍 Оставить отзыв', '📊 Рейтинг/Отзывы'],
+	['📋 Список сервисов'],
 ]).resize()
 
 function getMainKeyboard() {
@@ -400,6 +400,7 @@ textFeedbackScene.on('text', async ctx => {
 		ctx.session.textFeedback = ctx.message.text
 	}
 
+	// Формируем предпросмотр отзыва
 	const feedback = {
 		user_id: ctx.from.id,
 		first_name: ctx.from.first_name,
@@ -413,13 +414,50 @@ textFeedbackScene.on('text', async ctx => {
 		created_at: new Date(),
 	}
 
+	// Показываем предпросмотр
+	let previewMessage = '📝 *Предпросмотр вашего отзыва:*\n\n'
+	previewMessage += `🏢 *Мастерская:* ${feedback.workshop}\n`
+	previewMessage += `⭐️ *Качество:* ${feedback.quality_rating}/5\n`
+	previewMessage += `💬 *Коммуникация:* ${feedback.communication_rating}/5\n`
+	previewMessage += `⏰ *Выполнено вовремя:* ${feedback.on_time}\n`
+	if (feedback.text_feedback) {
+		previewMessage += `📝 *Комментарий:* ${feedback.text_feedback}\n`
+	}
+
+	await ctx.reply(previewMessage, {
+		parse_mode: 'Markdown',
+		reply_markup: Markup.inlineKeyboard([
+			[
+				Markup.button.callback('✅ Подтвердить', 'confirm_feedback'),
+				Markup.button.callback('❌ Отменить', 'cancel_feedback'),
+			],
+		]).reply_markup,
+	})
+})
+
+// Обработчик подтверждения отзыва
+textFeedbackScene.action('confirm_feedback', async ctx => {
 	try {
+		const feedback = {
+			user_id: ctx.from.id,
+			first_name: ctx.from.first_name,
+			last_name: ctx.from.last_name,
+			username: ctx.from.username,
+			workshop: ctx.session.workshop,
+			quality_rating: ctx.session.quality,
+			on_time: ctx.session.onTime,
+			communication_rating: ctx.session.communication,
+			text_feedback: ctx.session.textFeedback,
+			created_at: new Date(),
+		}
+
 		// Сохраняем отзыв в базу данных
 		const result = await db.collection('feedback').insertOne(feedback)
 		feedback._id = result.insertedId
 
 		// Отправляем сообщение пользователю
-		await ctx.reply('Спасибо за ваш отзыв!', mainKeyboard)
+		await ctx.answerCbQuery('Спасибо за ваш отзыв!')
+		await ctx.reply('✅ Ваш отзыв успешно сохранен!', getMainKeyboard())
 
 		// Отправляем уведомление админам
 		await notifyAdminsAboutNewFeedback(ctx, feedback)
@@ -427,9 +465,20 @@ textFeedbackScene.on('text', async ctx => {
 		ctx.scene.leave()
 	} catch (error) {
 		console.error('Error saving feedback:', error)
-		await ctx.reply('Произошла ошибка при сохранении отзыва.', mainKeyboard)
+		await ctx.answerCbQuery('Произошла ошибка при сохранении отзыва.')
+		await ctx.reply(
+			'❌ Произошла ошибка при сохранении отзыва.',
+			getMainKeyboard()
+		)
 		ctx.scene.leave()
 	}
+})
+
+// Обработчик отмены отзыва
+textFeedbackScene.action('cancel_feedback', async ctx => {
+	await ctx.answerCbQuery('Отзыв отменен')
+	await ctx.reply('❌ Отзыв отменен.', getMainKeyboard())
+	ctx.scene.leave()
 })
 
 // Сцена поиска пользователя
