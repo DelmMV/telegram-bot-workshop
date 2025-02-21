@@ -1137,15 +1137,15 @@ bot.action('rating_quality', async ctx => {
 	const workshops = await getWorkshopsList()
 	workshops.sort((a, b) => b.avg_quality - a.avg_quality)
 
-	let message = '📊 *Рейтинг по качеству работ:*\n\n'
+	let message = '📊 <b>Рейтинг по качеству работ:</b>\n\n'
 	workshops.forEach((workshop, index) => {
-		message += `${index + 1}. *${workshop.name}*\n`
-		message += `⭐️ Качество: ${workshop.avg_quality}/5\n`
-		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
+		message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+		message += `⭐️ Качество: <b>${workshop.avg_quality}/5</b>\n`
+		message += `📝 Всего отзывов: <b>${workshop.total_reviews}</b>\n\n`
 	})
 
 	await ctx.editMessageText(message, {
-		parse_mode: 'Markdown',
+		parse_mode: 'HTML',
 		reply_markup: Markup.inlineKeyboard([
 			[Markup.button.callback('« Назад', 'view_ratings')],
 		]).reply_markup,
@@ -1156,15 +1156,15 @@ bot.action('rating_communication', async ctx => {
 	const workshops = await getWorkshopsList()
 	workshops.sort((a, b) => b.avg_communication - a.avg_communication)
 
-	let message = '📊 *Рейтинг по коммуникации:*\n\n'
+	let message = '📊 <b>Рейтинг по коммуникации:</b>\n\n'
 	workshops.forEach((workshop, index) => {
-		message += `${index + 1}. *${workshop.name}*\n`
-		message += `💬 Коммуникация: ${workshop.avg_communication}/5\n`
-		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
+		message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+		message += `💬 Коммуникация: <b>${workshop.avg_communication}/5</b>\n`
+		message += `📝 Всего отзывов: <b>${workshop.total_reviews}</b>\n\n`
 	})
 
 	await ctx.editMessageText(message, {
-		parse_mode: 'Markdown',
+		parse_mode: 'HTML',
 		reply_markup: Markup.inlineKeyboard([
 			[Markup.button.callback('« Назад', 'view_ratings')],
 		]).reply_markup,
@@ -1183,20 +1183,20 @@ bot.action('rating_delays', async ctx => {
 		return onTimePercentB - onTimePercentA
 	})
 
-	let message = '📊 *Рейтинг по соблюдению сроков:*\n\n'
+	let message = '📊 <b>Рейтинг по соблюдению сроков:</b>\n\n'
 	workshops.forEach((workshop, index) => {
 		const onTimePercentage =
 			workshop.total_reviews > 0
 				? ((workshop.on_time_count / workshop.total_reviews) * 100).toFixed(1)
 				: '0.0'
 
-		message += `${index + 1}. *${workshop.name}*\n`
-		message += `✅ Выполнено вовремя: ${onTimePercentage}%\n`
-		message += `📝 Всего отзывов: ${workshop.total_reviews}\n\n`
+		message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+		message += `✅ Выполнено вовремя: <b>${onTimePercentage}%</b>\n`
+		message += `📝 Всего отзывов: <b>${workshop.total_reviews}</b>\n\n`
 	})
 
 	await ctx.editMessageText(message, {
-		parse_mode: 'Markdown',
+		parse_mode: 'HTML',
 		reply_markup: Markup.inlineKeyboard([
 			[Markup.button.callback('« Назад', 'view_ratings')],
 		]).reply_markup,
@@ -1217,21 +1217,23 @@ bot.action(/show_reviews_(.+)/, async ctx => {
 				'Для данной мастерской пока нет отзывов.',
 				Markup.inlineKeyboard([
 					[Markup.button.callback('« Назад', 'view_reviews')],
-				]).reply_markup
+				])
 			)
 			return
 		}
 
-		let message = `💬 *Отзывы о мастерской "${workshopName}":*\n\n`
+		let message = `💬 <b>Отзывы о мастерской "${escapeHTML(
+			workshopName
+		)}":</b>\n\n`
 		reviews.forEach((review, index) => {
 			if (review.text_feedback && review.text_feedback.trim() !== '') {
-				message += `${index + 1}. Отзыв от ${new Date(
+				message += `<b>${index + 1}.</b> Отзыв от ${new Date(
 					review.created_at
 				).toLocaleDateString('ru-RU')}\n`
-				message += `⭐️ Качество: ${review.quality_rating}/5\n`
-				message += `💬 Коммуникация: ${review.communication_rating}/5\n`
-				message += `⏰ Вовремя: ${review.on_time}\n`
-				message += `📝 Комментарий: ${review.text_feedback}\n\n`
+				message += `⭐️ Качество: <b>${review.quality_rating}/5</b>\n`
+				message += `💬 Коммуникация: <b>${review.communication_rating}/5</b>\n`
+				message += `⏰ Вовремя: <b>${review.on_time}</b>\n`
+				message += `📝 Комментарий: ${escapeHTML(review.text_feedback)}\n\n`
 			}
 		})
 
@@ -1242,19 +1244,19 @@ bot.action(/show_reviews_(.+)/, async ctx => {
 			for (let i = 0; i < parts.length; i++) {
 				if (i === parts.length - 1) {
 					await ctx.reply(parts[i], {
-						parse_mode: 'Markdown',
+						parse_mode: 'HTML',
 						reply_markup: Markup.inlineKeyboard([
 							[Markup.button.callback('« Назад', 'view_reviews')],
 						]).reply_markup,
 					})
 				} else {
-					await ctx.reply(parts[i], { parse_mode: 'Markdown' })
+					await ctx.reply(parts[i], { parse_mode: 'HTML' })
 				}
 			}
 			await ctx.deleteMessage()
 		} else {
 			await ctx.editMessageText(message, {
-				parse_mode: 'Markdown',
+				parse_mode: 'HTML',
 				reply_markup: Markup.inlineKeyboard([
 					[Markup.button.callback('« Назад', 'view_reviews')],
 				]).reply_markup,
