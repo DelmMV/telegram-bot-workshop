@@ -1122,7 +1122,7 @@ bot.action('view_reviews', async ctx => {
 	}
 
 	const keyboard = workshops.map(workshop => [
-		Markup.button.callback(workshop.name, `show_reviews_${workshop.name}`),
+		Markup.button.callback(workshop.name, `show_reviews_${workshop.name}_0`), // Добавляем _0 для первой страницы
 	])
 	keyboard.push([Markup.button.callback('« Назад', 'back_to_rating_menu')])
 
@@ -1203,16 +1203,31 @@ bot.action('rating_delays', async ctx => {
 	})
 })
 
-bot.action(/show_reviews_(.+)/, async ctx => {
+bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 	const workshopName = ctx.match[1]
+	const page = parseInt(ctx.match[2])
+	const reviewsPerPage = 5
+
 	try {
+		const totalReviews = await db.collection('feedback').countDocuments({
+			workshop: workshopName,
+			text_feedback: { $exists: true, $ne: '' },
+		})
+
+		const totalPages = Math.ceil(totalReviews / reviewsPerPage)
+
 		const reviews = await db
 			.collection('feedback')
-			.find({ workshop: workshopName })
+			.find({
+				workshop: workshopName,
+				text_feedback: { $exists: true, $ne: '' },
+			})
 			.sort({ created_at: -1 })
+			.skip(page * reviewsPerPage)
+			.limit(reviewsPerPage)
 			.toArray()
 
-		if (reviews.length === 0) {
+		if (reviews.length === 0 && page === 0) {
 			await ctx.editMessageText(
 				'Для данной мастерской пока нет отзывов.',
 				Markup.inlineKeyboard([
@@ -1224,44 +1239,50 @@ bot.action(/show_reviews_(.+)/, async ctx => {
 
 		let message = `💬 <b>Отзывы о мастерской "${escapeHTML(
 			workshopName
-		)}":</b>\n\n`
+		)}"</b>\n`
+		message += `<i>Страница ${page + 1} из ${totalPages}</i>\n\n`
+
 		reviews.forEach((review, index) => {
-			if (review.text_feedback && review.text_feedback.trim() !== '') {
-				message += `<b>${index + 1}.</b> Отзыв от ${new Date(
-					review.created_at
-				).toLocaleDateString('ru-RU')}\n`
-				message += `⭐️ Качество: <b>${review.quality_rating}/5</b>\n`
-				message += `💬 Коммуникация: <b>${review.communication_rating}/5</b>\n`
-				message += `⏰ Вовремя: <b>${review.on_time}</b>\n`
-				message += `📝 Комментарий: ${escapeHTML(review.text_feedback)}\n\n`
-			}
+			message += `<b>${
+				page * reviewsPerPage + index + 1
+			}.</b> Отзыв от ${new Date(review.created_at).toLocaleDateString(
+				'ru-RU'
+			)}\n`
+			message += `⭐️ Качество: <b>${review.quality_rating}/5</b>\n`
+			message += `💬 Коммуникация: <b>${review.communication_rating}/5</b>\n`
+			message += `⏰ Вовремя: <b>${review.on_time}</b>\n`
+			message += `📝 Комментарий: ${escapeHTML(review.text_feedback)}\n\n`
 		})
 
-		// Разбиваем сообщение на части, если оно слишком длинное
-		const maxLength = 4096
-		if (message.length > maxLength) {
-			const parts = message.match(new RegExp(`.{1,${maxLength}}`, 'g'))
-			for (let i = 0; i < parts.length; i++) {
-				if (i === parts.length - 1) {
-					await ctx.reply(parts[i], {
-						parse_mode: 'HTML',
-						reply_markup: Markup.inlineKeyboard([
-							[Markup.button.callback('« Назад', 'view_reviews')],
-						]).reply_markup,
-					})
-				} else {
-					await ctx.reply(parts[i], { parse_mode: 'HTML' })
-				}
-			}
-			await ctx.deleteMessage()
-		} else {
-			await ctx.editMessageText(message, {
-				parse_mode: 'HTML',
-				reply_markup: Markup.inlineKeyboard([
-					[Markup.button.callback('« Назад', 'view_reviews')],
-				]).reply_markup,
-			})
+		// Создаем кнопки пагинации
+		const keyboard = []
+		const navigationRow = []
+
+		if (page > 0) {
+			navigationRow.push(
+				Markup.button.callback(
+					'« Предыдущая',
+					`show_reviews_${workshopName}_${page - 1}`
+				)
+			)
 		}
+		if (page < totalPages - 1) {
+			navigationRow.push(
+				Markup.button.callback(
+					'Следующая »',
+					`show_reviews_${workshopName}_${page + 1}`
+				)
+			)
+		}
+		if (navigationRow.length > 0) {
+			keyboard.push(navigationRow)
+		}
+		keyboard.push([Markup.button.callback('« Назад к списку', 'view_reviews')])
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard(keyboard).reply_markup,
+		})
 	} catch (error) {
 		console.error('Error getting workshop reviews:', error)
 		await ctx.reply('Произошла ошибка при получении отзывов.')
