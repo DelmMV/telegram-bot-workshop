@@ -1242,10 +1242,8 @@ bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 		)}"</b>\n`
 		message += `<i>Страница ${page + 1} из ${totalPages}</i>\n\n`
 
-		reviews.forEach((review, index) => {
-			message += `<b>${
-				page * reviewsPerPage + index + 1
-			}.</b> Отзыв от ${new Date(review.created_at).toLocaleDateString(
+		reviews.forEach((review) => {
+			message += `Отзыв от ${new Date(review.created_at).toLocaleDateString(
 				'ru-RU'
 			)}\n`
 			message += `⭐️ Качество: <b>${review.quality_rating}/5</b>\n`
