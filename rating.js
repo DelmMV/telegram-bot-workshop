@@ -414,18 +414,20 @@ textFeedbackScene.on('text', async ctx => {
 		created_at: new Date(),
 	}
 
-	// Показываем предпросмотр
-	let previewMessage = '📝 *Предпросмотр вашего отзыва:*\n\n'
-	previewMessage += `🏢 *Мастерская:* ${feedback.workshop}\n`
-	previewMessage += `⭐️ *Качество:* ${feedback.quality_rating}/5\n`
-	previewMessage += `💬 *Коммуникация:* ${feedback.communication_rating}/5\n`
-	previewMessage += `⏰ *Выполнено вовремя:* ${feedback.on_time}\n`
+	// Объявляем и формируем сообщение предпросмотра
+	let previewMessage = '📝 <b>Предпросмотр вашего отзыва:</b>\n\n'
+	previewMessage += `<b>🏢 Мастерская:</b> ${escapeHTML(feedback.workshop)}\n`
+	previewMessage += `<b>⭐️ Качество:</b> ${feedback.quality_rating}/5\n`
+	previewMessage += `<b>💬 Коммуникация:</b> ${feedback.communication_rating}/5\n`
+	previewMessage += `<b>⏰ Выполнено вовремя:</b> ${feedback.on_time}\n`
 	if (feedback.text_feedback) {
-		previewMessage += `📝 *Комментарий:* ${feedback.text_feedback}\n`
+		previewMessage += `📝 <b>Комментарий:</b> ${escapeHTML(
+			feedback.text_feedback
+		)}\n`
 	}
 
 	await ctx.reply(previewMessage, {
-		parse_mode: 'Markdown',
+		parse_mode: 'HTML',
 		reply_markup: Markup.inlineKeyboard([
 			[
 				Markup.button.callback('✅ Подтвердить', 'confirm_feedback'),
@@ -1242,7 +1244,7 @@ bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 		)}"</b>\n`
 		message += `<i>Страница ${page + 1} из ${totalPages}</i>\n\n`
 
-		reviews.forEach((review) => {
+		reviews.forEach(review => {
 			message += `Отзыв от ${new Date(review.created_at).toLocaleDateString(
 				'ru-RU'
 			)}\n`
