@@ -269,6 +269,7 @@ function getAdminKeyboard() {
 	return Markup.inlineKeyboard([
 		[Markup.button.callback('📊 Последние отзывы', 'admin_all_feedbacks')],
 		[Markup.button.callback('🔍 Поиск пользователя', 'admin_search_user')],
+		[Markup.button.callback('🏆 Сезонный рейтинг', 'admin_seasonal_rating')],
 		[Markup.button.callback('➕ Добавить мастерскую', 'admin_add_workshop')],
 		[Markup.button.callback('❌ Удалить мастерскую', 'admin_remove_workshop')],
 		[Markup.button.callback('📋 Список мастерских', 'admin_list_workshops')],
@@ -278,13 +279,13 @@ function getAdminKeyboard() {
 // Создаем клавиатуру для главного меню
 const mainKeyboard = Markup.keyboard([
 	['👍 Оставить отзыв', '📊 Рейтинг/Отзывы'],
-	['📋 Список сервисов'],
+	['📋 Список сервисов', 'ℹ️ Помощь'],
 ]).resize()
 
 function getMainKeyboard() {
 	return Markup.keyboard([
 		['👍 Оставить отзыв', '📊 Рейтинг/Отзывы'],
-		['📋 Список сервисов'],
+		['📋 Список сервисов', 'ℹ️ Помощь'],
 	]).resize()
 }
 
@@ -622,6 +623,211 @@ addWorkshopScene.action('cancel_workshop_add', async ctx => {
 	ctx.scene.leave()
 })
 
+// Сцена добавления сезона
+const addSeasonScene = new Scenes.BaseScene('add_season_scene')
+addSeasonScene.enter(async ctx => {
+	ctx.session.season = {}
+	await ctx.editMessageText(
+		'Введите название нового сезона (например, "Зимний сезон 2024/2025"):',
+		Markup.inlineKeyboard([
+			[Markup.button.callback('« Отмена', 'admin_seasonal_back')],
+		])
+	)
+})
+
+addSeasonScene.on('text', async ctx => {
+	if (!ctx.session.season.name) {
+		ctx.session.season.name = ctx.message.text
+		await ctx.reply('Теперь введите описание сезона:')
+		return
+	}
+
+	if (!ctx.session.season.description) {
+		ctx.session.season.description = ctx.message.text
+		await ctx.reply(
+			'Введите дату начала сезона в формате ДД.ММ.ГГГГ (например, 25.04.2025):'
+		)
+		return
+	}
+
+	if (!ctx.session.season.start_date) {
+		const dateRegex = /^(\d{2})\.(\d{2})\.(\d{4})$/
+		const match = ctx.message.text.match(dateRegex)
+
+		if (!match) {
+			await ctx.reply(
+				'Неверный формат даты. Используйте формат ДД.ММ.ГГГГ (например, 25.04.2025):'
+			)
+			return
+		}
+
+		const [, day, month, year] = match
+		const startDate = new Date(year, month - 1, day)
+
+		if (isNaN(startDate.getTime())) {
+			await ctx.reply(
+				'Неверная дата. Введите корректную дату в формате ДД.ММ.ГГГГ:'
+			)
+			return
+		}
+
+		ctx.session.season.start_date = startDate
+		await ctx.reply(
+			'Введите дату окончания сезона в формате ДД.ММ.ГГГГ или напишите "Не указывать" если сезон текущий:',
+			Markup.keyboard([['Не указывать']])
+				.oneTime()
+				.resize()
+		)
+		return
+	}
+
+	if (!ctx.session.season.hasOwnProperty('end_date')) {
+		if (ctx.message.text === 'Не указывать') {
+			ctx.session.season.end_date = null
+		} else {
+			const dateRegex = /^(\d{2})\.(\d{2})\.(\d{4})$/
+			const match = ctx.message.text.match(dateRegex)
+
+			if (!match) {
+				await ctx.reply(
+					'Неверный формат даты. Используйте формат ДД.ММ.ГГГГ или "Не указывать":'
+				)
+				return
+			}
+
+			const [, day, month, year] = match
+			const endDate = new Date(year, month - 1, day)
+
+			if (isNaN(endDate.getTime())) {
+				await ctx.reply(
+					'Неверная дата. Введите корректную дату в формате ДД.ММ.ГГГГ:'
+				)
+				return
+			}
+
+			if (endDate <= ctx.session.season.start_date) {
+				await ctx.reply(
+					'Дата окончания должна быть позже даты начала. Введите корректную дату:'
+				)
+				return
+			}
+
+			ctx.session.season.end_date = endDate
+		}
+
+		// Показываем предпросмотр
+		const startDateStr =
+			ctx.session.season.start_date.toLocaleDateString('ru-RU')
+		const endDateStr = ctx.session.season.end_date
+			? ctx.session.season.end_date.toLocaleDateString('ru-RU')
+			: 'Не указана (текущий сезон)'
+
+		const previewMessage =
+			`📅 Проверьте данные сезона:\n\n` +
+			`Название: ${ctx.session.season.name}\n` +
+			`Описание: ${ctx.session.season.description}\n` +
+			`Дата начала: ${startDateStr}\n` +
+			`Дата окончания: ${endDateStr}`
+
+		await ctx.reply(
+			previewMessage,
+			Markup.inlineKeyboard([
+				[
+					Markup.button.callback('✅ Подтвердить', 'confirm_season_add'),
+					Markup.button.callback('❌ Отменить', 'cancel_season_add'),
+				],
+			])
+		)
+	}
+})
+
+addSeasonScene.action('confirm_season_add', async ctx => {
+	try {
+		const result = await addSeason(ctx.session.season)
+		if (result.success) {
+			await ctx.answerCbQuery('Сезон успешно добавлен!')
+			await ctx.reply(`Сезон "${ctx.session.season.name}" успешно добавлен.`)
+		} else {
+			await ctx.answerCbQuery(result.message)
+			await ctx.reply(result.message)
+		}
+	} catch (error) {
+		console.error('Error adding season:', error)
+		await ctx.reply('Произошла ошибка при добавлении сезона.')
+	}
+	ctx.scene.leave()
+})
+
+addSeasonScene.action('cancel_season_add', async ctx => {
+	await ctx.answerCbQuery('Добавление сезона отменено')
+	await ctx.reply('Добавление сезона отменено.')
+	ctx.scene.leave()
+})
+
+addSeasonScene.action('admin_seasonal_back', async ctx => {
+	await ctx.answerCbQuery('Добавление отменено')
+	ctx.scene.leave()
+})
+
+// Сцена завершения сезона
+const endSeasonScene = new Scenes.BaseScene('end_season_scene')
+endSeasonScene.enter(async ctx => {
+	await ctx.editMessageText(
+		'Введите дату окончания сезона в формате ДД.ММ.ГГГГ:',
+		Markup.inlineKeyboard([
+			[Markup.button.callback('« Отмена', 'admin_seasonal_back')],
+		])
+	)
+})
+
+endSeasonScene.on('text', async ctx => {
+	const dateRegex = /^(\d{2})\.(\d{2})\.(\d{4})$/
+	const match = ctx.message.text.match(dateRegex)
+
+	if (!match) {
+		await ctx.reply(
+			'Неверный формат даты. Используйте формат ДД.ММ.ГГГГ (например, 15.10.2025):'
+		)
+		return
+	}
+
+	const [, day, month, year] = match
+	const endDate = new Date(year, month - 1, day)
+
+	if (isNaN(endDate.getTime())) {
+		await ctx.reply(
+			'Неверная дата. Введите корректную дату в формате ДД.ММ.ГГГГ:'
+		)
+		return
+	}
+
+	try {
+		const success = await updateSeasonEndDate(
+			ctx.session.selectedSeasonId,
+			endDate
+		)
+		if (success) {
+			await ctx.reply(
+				`✅ Дата окончания сезона успешно установлена: ${endDate.toLocaleDateString(
+					'ru-RU'
+				)}`
+			)
+		} else {
+			await ctx.reply('❌ Произошла ошибка при обновлении сезона.')
+		}
+	} catch (error) {
+		console.error('Error updating season:', error)
+		await ctx.reply('Произошла ошибка при обновлении сезона.')
+	}
+
+	ctx.scene.leave()
+})
+
+endSeasonScene.action('admin_seasonal_back', async ctx => {
+	await ctx.answerCbQuery('Завершение отменено')
+	ctx.scene.leave()
+})
+
 // Создание stage
 const stage = new Scenes.Stage([
 	workshopScene,
@@ -631,6 +837,8 @@ const stage = new Scenes.Stage([
 	textFeedbackScene,
 	searchUserScene,
 	addWorkshopScene,
+	addSeasonScene,
+	endSeasonScene,
 ])
 
 // Подключение middleware
@@ -642,10 +850,61 @@ bot.command('start', ctx => {
 	if (ctx.chat.type !== 'private') {
 		return // Просто игнорируем команду в групповых чатах
 	}
-	ctx.reply(
-		'Привет! Выберите действие:',
-		getMainKeyboard() // Используем функцию
-	)
+
+	const welcomeMessage =
+		'👋 <b>Добро пожаловать в рейтинга мастерских!</b>\n\n' +
+		'🎯 <b>Что умеет этот бот:</b>\n\n' +
+		'👍 <b>Оставить отзыв</b>\n' +
+		'   • Оценить качество работы мастерской\n' +
+		'   • Оценить коммуникацию с мастерской\n' +
+		'   • Указать, выполнен ли заказ вовремя\n' +
+		'   • Написать текстовый комментарий\n\n' +
+		'📊 <b>Рейтинг/Отзывы</b>\n' +
+		'   • Посмотреть рейтинг мастерских по качеству\n' +
+		'   • Посмотреть рейтинг по коммуникации\n' +
+		'   • Посмотреть статистику соблюдения сроков\n' +
+		'   • Прочитать отзывы других клиентов\n\n' +
+		'📋 <b>Список сервисов</b>\n' +
+		'   • Просмотр всех доступных мастерских\n' +
+		'   • Контактная информация и описание\n' +
+		'   • Средние оценки и общая статистика\n\n' +
+		'💡 <i>Ваши честные отзывы помогают другим клиентам делать правильный выбор!</i>\n\n' +
+		'👇 Выберите действие:'
+
+	ctx.reply(welcomeMessage, {
+		parse_mode: 'HTML',
+		reply_markup: getMainKeyboard().reply_markup,
+	})
+})
+
+bot.command('help', ctx => {
+	if (ctx.chat.type !== 'private') {
+		return
+	}
+
+	const helpMessage =
+		'ℹ️ <b>Справка по использованию бота</b>\n\n' +
+		'<b>Основные команды:</b>\n' +
+		'/start - Главное меню\n' +
+		'/help - Эта справка\n\n' +
+		'<b>Как оставить отзыв:</b>\n' +
+		'1️⃣ Нажмите "👍 Оставить отзыв"\n' +
+		'2️⃣ Выберите мастерскую\n' +
+		'3️⃣ Оцените качество работы (1-5)\n' +
+		'4️⃣ Укажите, выполнен ли заказ вовремя\n' +
+		'5️⃣ Оцените коммуникацию (1-5)\n' +
+		'6️⃣ Напишите текстовый отзыв или пропустите\n' +
+		'7️⃣ Подтвердите отправку\n\n' +
+		'<b>Как посмотреть рейтинг:</b>\n' +
+		'• Нажмите "📊 Рейтинг/Отзывы"\n' +
+		'• Выберите тип рейтинга или просмотр отзывов\n' +
+		'• Для отзывов выберите интересующую мастерскую\n\n' +
+		'<b>Список мастерских:</b>\n' +
+		'• Нажмите "📋 Список сервисов"\n' +
+		'• Получите полную информацию о всех мастерских\n\n' +
+		'❓ <i>Если у вас возникли вопросы, обратитесь к администратору.</i>'
+
+	ctx.reply(helpMessage, { parse_mode: 'HTML' })
 })
 
 bot.command('admin', async ctx => {
@@ -1061,6 +1320,351 @@ bot.action('admin_back', async ctx => {
 	)
 })
 
+// Обработчики сезонного рейтинга
+bot.action('admin_seasonal_rating', async ctx => {
+	await ctx.answerCbQuery()
+
+	const keyboard = Markup.inlineKeyboard([
+		[Markup.button.callback('📋 Список сезонов', 'seasonal_list')],
+		[Markup.button.callback('📊 Рейтинг по сезонам', 'seasonal_ratings')],
+		[Markup.button.callback('➕ Добавить сезон', 'seasonal_add')],
+		[Markup.button.callback('⏰ Завершить сезон', 'seasonal_end')],
+		[Markup.button.callback('« Назад', 'admin_back')],
+	])
+
+	await ctx.editMessageText(
+		'🏆 Управление сезонным рейтингом\n\nВыберите действие:',
+		keyboard
+	)
+})
+
+bot.action('admin_seasonal_back', async ctx => {
+	await ctx.answerCbQuery()
+
+	const keyboard = Markup.inlineKeyboard([
+		[Markup.button.callback('📋 Список сезонов', 'seasonal_list')],
+		[Markup.button.callback('📊 Рейтинг по сезонам', 'seasonal_ratings')],
+		[Markup.button.callback('➕ Добавить сезон', 'seasonal_add')],
+		[Markup.button.callback('⏰ Завершить сезон', 'seasonal_end')],
+		[Markup.button.callback('« Назад', 'admin_back')],
+	])
+
+	await ctx.editMessageText(
+		'🏆 Управление сезонным рейтингом\n\nВыберите действие:',
+		keyboard
+	)
+})
+
+bot.action('seasonal_list', async ctx => {
+	await ctx.answerCbQuery()
+
+	try {
+		const seasons = await getSeasons()
+
+		if (seasons.length === 0) {
+			await ctx.editMessageText(
+				'📅 Сезоны не найдены.',
+				Markup.inlineKeyboard([
+					[Markup.button.callback('« Назад', 'admin_seasonal_back')],
+				])
+			)
+			return
+		}
+
+		let message = '📅 <b>Список сезонов:</b>\n\n'
+
+		seasons.forEach((season, index) => {
+			const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+			const endDate = season.end_date
+				? new Date(season.end_date).toLocaleDateString('ru-RU')
+				: 'Текущий'
+
+			message += `<b>${index + 1}. ${escapeHTML(season.name)}</b>\n`
+			message += `📝 ${escapeHTML(season.description)}\n`
+			message += `📅 Период: ${startDate} - ${endDate}\n\n`
+		})
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', 'admin_seasonal_back')],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasons list:', error)
+		await ctx.reply('Произошла ошибка при получении списка сезонов.')
+	}
+})
+
+bot.action('seasonal_add', async ctx => {
+	await ctx.answerCbQuery()
+	ctx.scene.enter('add_season_scene')
+})
+
+bot.action('seasonal_end', async ctx => {
+	await ctx.answerCbQuery()
+
+	try {
+		const seasons = await getSeasons()
+		const openSeasons = seasons.filter(season => !season.end_date)
+
+		if (openSeasons.length === 0) {
+			await ctx.editMessageText(
+				'Нет открытых сезонов для завершения.',
+				Markup.inlineKeyboard([
+					[Markup.button.callback('« Назад', 'admin_seasonal_back')],
+				])
+			)
+			return
+		}
+
+		const keyboard = openSeasons.map(season => [
+			Markup.button.callback(`📅 ${season.name}`, `end_season_${season._id}`),
+		])
+		keyboard.push([Markup.button.callback('« Назад', 'admin_seasonal_back')])
+
+		await ctx.editMessageText(
+			'Выберите сезон для завершения:',
+			Markup.inlineKeyboard(keyboard)
+		)
+	} catch (error) {
+		console.error('Error getting open seasons:', error)
+		await ctx.reply('Произошла ошибка при получении списка сезонов.')
+	}
+})
+
+bot.action(/end_season_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	ctx.session.selectedSeasonId = ctx.match[1]
+	ctx.scene.enter('end_season_scene')
+})
+
+bot.action('seasonal_ratings', async ctx => {
+	await ctx.answerCbQuery()
+
+	try {
+		const seasons = await getSeasons()
+
+		if (seasons.length === 0) {
+			await ctx.editMessageText(
+				'Сезоны не найдены.',
+				Markup.inlineKeyboard([
+					[Markup.button.callback('« Назад', 'admin_seasonal_back')],
+				])
+			)
+			return
+		}
+
+		const keyboard = seasons.map(season => {
+			const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+			const endDate = season.end_date
+				? new Date(season.end_date).toLocaleDateString('ru-RU')
+				: 'Текущий'
+
+			return [
+				Markup.button.callback(
+					`📊 ${season.name} (${startDate} - ${endDate})`,
+					`season_rating_${season._id}`
+				),
+			]
+		})
+		keyboard.push([Markup.button.callback('« Назад', 'admin_seasonal_back')])
+
+		await ctx.editMessageText(
+			'Выберите сезон для просмотра рейтинга:',
+			Markup.inlineKeyboard(keyboard)
+		)
+	} catch (error) {
+		console.error('Error getting seasons for rating:', error)
+		await ctx.reply('Произошла ошибка при получении списка сезонов.')
+	}
+})
+
+bot.action(/season_rating_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		if (!season) {
+			await ctx.reply('Сезон не найден.')
+			return
+		}
+
+		const keyboard = Markup.inlineKeyboard([
+			[Markup.button.callback('⭐️ По качеству', `season_quality_${seasonId}`)],
+			[
+				Markup.button.callback(
+					'💬 По коммуникации',
+					`season_communication_${seasonId}`
+				),
+			],
+			[Markup.button.callback('⏰ По срокам', `season_timing_${seasonId}`)],
+			[Markup.button.callback('« Назад', 'seasonal_ratings')],
+		])
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		await ctx.editMessageText(
+			`📊 <b>Рейтинг за сезон "${escapeHTML(season.name)}"</b>\n` +
+				`📅 Период: ${startDate} - ${endDate}\n\n` +
+				'Выберите тип рейтинга:',
+			{
+				parse_mode: 'HTML',
+				reply_markup: keyboard.reply_markup,
+			}
+		)
+	} catch (error) {
+		console.error('Error getting season rating menu:', error)
+		await ctx.reply('Произошла ошибка при получении меню рейтинга.')
+	}
+})
+
+// Обработчики для разных типов сезонного рейтинга
+bot.action(/season_quality_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+		workshops.sort(
+			(a, b) => parseFloat(b.avg_quality) - parseFloat(a.avg_quality)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 <b>Рейтинг по качеству за сезон "${escapeHTML(
+			season.name
+		)}"</b>\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+				message += `⭐️ Качество: <b>${workshop.avg_quality}/5</b>\n`
+				message += `📝 Отзывов: <b>${workshop.total_reviews}</b>\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal quality rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
+bot.action(/season_communication_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+		workshops.sort(
+			(a, b) =>
+				parseFloat(b.avg_communication) - parseFloat(a.avg_communication)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 <b>Рейтинг по коммуникации за сезон "${escapeHTML(
+			season.name
+		)}"</b>\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+				message += `💬 Коммуникация: <b>${workshop.avg_communication}/5</b>\n`
+				message += `📝 Отзывов: <b>${workshop.total_reviews}</b>\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal communication rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
+bot.action(/season_timing_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+
+		// Сортируем по проценту выполненных вовремя
+		workshops.sort(
+			(a, b) =>
+				parseFloat(b.on_time_percentage) - parseFloat(a.on_time_percentage)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 <b>Рейтинг по соблюдению сроков за сезон "${escapeHTML(
+			season.name
+		)}"</b>\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `<b>${index + 1}. ${escapeHTML(workshop.name)}</b>\n`
+				message += `✅ Вовремя: <b>${workshop.on_time_percentage}%</b>\n`
+				message += `📝 Отзывов: <b>${workshop.total_reviews}</b>\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal timing rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
 // Обработчики основного меню
 bot.hears('👍 Оставить отзыв', async ctx => {
 	try {
@@ -1088,6 +1692,32 @@ bot.hears('📋 Список сервисов', async ctx => {
 	const workshops = await getWorkshopsList()
 	const message = formatWorkshopsListMessage(workshops)
 	await ctx.replyWithMarkdown(message) // Используем Markdown для форматирования
+})
+
+bot.hears('ℹ️ Помощь', ctx => {
+	const helpMessage =
+		'ℹ️ <b>Справка по использованию бота</b>\n\n' +
+		'<b>Основные команды:</b>\n' +
+		'/start - Главное меню\n' +
+		'/help - Эта справка\n\n' +
+		'<b>Как оставить отзыв:</b>\n' +
+		'1️⃣ Нажмите "👍 Оставить отзыв"\n' +
+		'2️⃣ Выберите мастерскую\n' +
+		'3️⃣ Оцените качество работы (1-5)\n' +
+		'4️⃣ Укажите, выполнен ли заказ вовремя\n' +
+		'5️⃣ Оцените коммуникацию (1-5)\n' +
+		'6️⃣ Напишите текстовый отзыв или пропустите\n' +
+		'7️⃣ Подтвердите отправку\n\n' +
+		'<b>Как посмотреть рейтинг:</b>\n' +
+		'• Нажмите "📊 Рейтинг/Отзывы"\n' +
+		'• Выберите тип рейтинга или просмотр отзывов\n' +
+		'• Для отзывов выберите интересующую мастерскую\n\n' +
+		'<b>Список мастерских:</b>\n' +
+		'• Нажмите "📋 Список сервисов"\n' +
+		'• Получите полную информацию о всех мастерских\n\n' +
+		'❓ <i>Если у вас возникли вопросы, обратитесь к администратору.</i>'
+
+	ctx.reply(helpMessage, { parse_mode: 'HTML' })
 })
 
 bot.hears('📊 Рейтинг/Отзывы', async ctx => {
@@ -1330,10 +1960,198 @@ async function canUserVote(userId) {
 	}
 }
 
+// Функции для работы с сезонами
+async function getSeasons() {
+	try {
+		const seasons = await db
+			.collection('seasons')
+			.find({})
+			.sort({ start_date: -1 })
+			.toArray()
+		return seasons
+	} catch (error) {
+		console.error('Error getting seasons:', error)
+		return []
+	}
+}
+
+async function getCurrentSeason() {
+	try {
+		const now = new Date()
+		const season = await db.collection('seasons').findOne({
+			start_date: { $lte: now },
+			$or: [
+				{ end_date: { $gte: now } },
+				{ end_date: null }, // Текущий сезон без окончательной даты
+			],
+		})
+		return season
+	} catch (error) {
+		console.error('Error getting current season:', error)
+		return null
+	}
+}
+
+async function addSeason(seasonData) {
+	try {
+		// Проверяем, нет ли пересекающихся сезонов
+		const existingSeason = await db.collection('seasons').findOne({
+			$or: [
+				{
+					start_date: { $lte: seasonData.start_date },
+					$or: [
+						{ end_date: { $gte: seasonData.start_date } },
+						{ end_date: null },
+					],
+				},
+				{
+					start_date: { $gte: seasonData.start_date },
+					start_date: { $lte: seasonData.end_date || new Date('2099-12-31') },
+				},
+			],
+		})
+
+		if (existingSeason) {
+			return {
+				success: false,
+				message: 'Период пересекается с существующим сезоном',
+			}
+		}
+
+		await db.collection('seasons').insertOne({
+			name: seasonData.name,
+			description: seasonData.description,
+			start_date: seasonData.start_date,
+			end_date: seasonData.end_date,
+			created_at: new Date(),
+		})
+		return { success: true }
+	} catch (error) {
+		console.error('Error adding season:', error)
+		return { success: false, message: 'Ошибка при добавлении сезона' }
+	}
+}
+
+async function updateSeasonEndDate(seasonId, endDate) {
+	try {
+		const result = await db
+			.collection('seasons')
+			.updateOne(
+				{ _id: new ObjectId(seasonId) },
+				{ $set: { end_date: endDate } }
+			)
+		return result.modifiedCount > 0
+	} catch (error) {
+		console.error('Error updating season:', error)
+		return false
+	}
+}
+
+async function getSeasonalWorkshopStats(seasonId) {
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+
+		if (!season) return []
+
+		const dateFilter = {
+			created_at: { $gte: season.start_date },
+		}
+
+		if (season.end_date) {
+			dateFilter.created_at.$lte = season.end_date
+		}
+
+		const workshops = await db.collection('workshops').find({}).toArray()
+
+		const workshopsData = []
+
+		for (const workshop of workshops) {
+			const feedbacks = await db
+				.collection('feedback')
+				.find({
+					workshop: workshop.name,
+					...dateFilter,
+				})
+				.toArray()
+
+			const total_reviews = feedbacks.length
+			const on_time_count = feedbacks.filter(f => f.on_time === 'Да').length
+
+			const onTimePercentage =
+				total_reviews > 0
+					? ((on_time_count / total_reviews) * 100).toFixed(1)
+					: '0.0'
+
+			workshopsData.push({
+				name: workshop.name,
+				address: workshop.address,
+				description: workshop.description,
+				avg_quality: calculateAverage(feedbacks, 'quality_rating'),
+				avg_communication: calculateAverage(feedbacks, 'communication_rating'),
+				total_reviews: total_reviews,
+				on_time_count: on_time_count,
+				on_time_percentage: onTimePercentage,
+			})
+		}
+
+		return workshopsData
+	} catch (error) {
+		console.error('Error getting seasonal stats:', error)
+		return []
+	}
+}
+
 // Подключение к MongoDB и запуск бота
+async function initializeSeasons() {
+	try {
+		const seasonsCount = await db.collection('seasons').countDocuments()
+
+		if (seasonsCount === 0) {
+			// Создаем начальные сезоны согласно требованиям
+			const winterSeason = {
+				name: 'Межсезонье/Зимний сезон 2024/2025',
+				description: 'Зимний период с начала времени до 25.04.2025',
+				start_date: new Date('2024-01-01'), // Начальная дата
+				end_date: new Date('2025-04-25'),
+				created_at: new Date(),
+			}
+
+			const summerSeason = {
+				name: 'Летний сезон 2025',
+				description: 'Летний период с 26.04.2025 до 15.10.2025',
+				start_date: new Date('2025-04-26'),
+				end_date: new Date('2025-10-15'),
+				created_at: new Date(),
+			}
+
+			const fallSeason = {
+				name: 'Осенний сезон 2025',
+				description:
+					'Осенний период с 16.10.2025 (дата окончания будет определена позднее)',
+				start_date: new Date('2025-10-16'),
+				end_date: null, // Текущий открытый сезон
+				created_at: new Date(),
+			}
+
+			await db
+				.collection('seasons')
+				.insertMany([winterSeason, summerSeason, fallSeason])
+			console.log('Initial seasons created')
+		}
+	} catch (error) {
+		console.error('Error initializing seasons:', error)
+	}
+}
+
 async function setupDatabase() {
 	try {
 		await db.collection('workshops').createIndex({ name: 1 }, { unique: true })
+		await db.collection('seasons').createIndex({ start_date: 1 })
+		await db.collection('seasons').createIndex({ end_date: 1 })
+		await db.collection('feedback').createIndex({ created_at: 1 })
+		await initializeSeasons()
 		console.log('Database indexes created')
 	} catch (error) {
 		console.error('Error creating indexes:', error)
