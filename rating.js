@@ -226,6 +226,42 @@ function calculateAverage(feedbacks, field) {
 	return (sum / feedbacks.length).toFixed(2)
 }
 
+/**
+ * Функция расчета общего рейтинга по формуле:
+ * Рейтинг = (Качество * 0.8 + Коммуникации * 0.2) * %_вовремя * log(Количество_отзывов + 1)
+ */
+async function getOverallRating() {
+	const workshops = await getWorkshopsList()
+
+	const workshopsWithRating = workshops.map(workshop => {
+		const qualityScore = parseFloat(workshop.avg_quality) || 0
+		const communicationScore = parseFloat(workshop.avg_communication) || 0
+		const onTimePercentage = parseFloat(workshop.on_time_percentage) / 100 // конвертируем в 0-1
+		const reviewCount = workshop.total_reviews
+
+		// Применяем формулу:
+		// Рейтинг = (Качество * 0.8 + Коммуникации * 0.2) * %_вовремя * log(Количество_отзывов + 1)
+		const baseRating = qualityScore * 0.8 + communicationScore * 0.2
+		const overallRating =
+			baseRating * onTimePercentage * Math.log(reviewCount + 1)
+
+		return {
+			...workshop,
+			base_rating: baseRating,
+			overall_rating: overallRating,
+			quality_score: qualityScore,
+			communication_score: communicationScore,
+			on_time_percentage_decimal: onTimePercentage,
+			log_factor: Math.log(reviewCount + 1),
+		}
+	})
+
+	// Сортируем по общему рейтингу (от большего к меньшему)
+	workshopsWithRating.sort((a, b) => b.overall_rating - a.overall_rating)
+
+	return workshopsWithRating
+}
+
 function formatWorkshopsListMessage(workshops) {
 	if (workshops.length === 0) {
 		return 'В данный момент нет доступных мастерских.'
@@ -852,7 +888,7 @@ bot.command('start', ctx => {
 	}
 
 	const welcomeMessage =
-		'👋 <b>Добро пожаловать в рейтинга мастерских!</b>\n\n' +
+		'👋 <b>Добро пожаловать в рейтинг мастерских!</b>\n\n' +
 		'🎯 <b>Что умеет этот бот:</b>\n\n' +
 		'👍 <b>Оставить отзыв</b>\n' +
 		'   • Оценить качество работы мастерской\n' +
@@ -1464,11 +1500,11 @@ bot.action('seasonal_ratings', async ctx => {
 			return [
 				Markup.button.callback(
 					`📊 ${season.name} (${startDate} - ${endDate})`,
-					`season_rating_${season._id}`
+					`user_season_rating_${season._id}`
 				),
 			]
 		})
-		keyboard.push([Markup.button.callback('« Назад', 'admin_seasonal_back')])
+		keyboard.push([Markup.button.callback('« Назад', 'view_ratings')])
 
 		await ctx.editMessageText(
 			'Выберите сезон для просмотра рейтинга:',
@@ -1494,6 +1530,12 @@ bot.action(/season_rating_(.+)/, async ctx => {
 		}
 
 		const keyboard = Markup.inlineKeyboard([
+			[
+				Markup.button.callback(
+					'🏆 Общий рейтинг',
+					`season_overall_${seasonId}`
+				),
+			],
 			[Markup.button.callback('⭐️ По качеству', `season_quality_${seasonId}`)],
 			[
 				Markup.button.callback(
@@ -1526,6 +1568,93 @@ bot.action(/season_rating_(.+)/, async ctx => {
 })
 
 // Обработчики для разных типов сезонного рейтинга
+bot.action(/season_overall_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+
+		// Применяем ту же формулу общего рейтинга для сезонных данных
+		const workshopsWithRating = workshops.map(workshop => {
+			const qualityScore = parseFloat(workshop.avg_quality) || 0
+			const communicationScore = parseFloat(workshop.avg_communication) || 0
+			const onTimePercentage = parseFloat(workshop.on_time_percentage) / 100
+			const reviewCount = workshop.total_reviews
+
+			const baseRating = qualityScore * 0.8 + communicationScore * 0.2
+			const overallRating =
+				baseRating * onTimePercentage * Math.log(reviewCount + 1)
+
+			return {
+				...workshop,
+				base_rating: baseRating,
+				overall_rating: overallRating,
+				quality_score: qualityScore,
+				communication_score: communicationScore,
+				on_time_percentage_decimal: onTimePercentage,
+				log_factor: Math.log(reviewCount + 1),
+			}
+		})
+
+		workshopsWithRating.sort((a, b) => b.overall_rating - a.overall_rating)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `🏆 <b>Общий рейтинг за сезон "${escapeHTML(
+			season.name
+		)}"</b>\n\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n`
+		message +=
+			'<i>Формула: (Качество×0.8 + Коммуникация×0.2) × %вовремя × log(отзывы+1)</i>\n\n'
+
+		if (workshopsWithRating.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshopsWithRating.forEach((workshop, index) => {
+				const medal =
+					index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🔸'
+
+				message += `${medal} <b>${index + 1}. ${escapeHTML(
+					workshop.name
+				)}</b>\n`
+				message += `🏆 Общий рейтинг: <b>${workshop.overall_rating.toFixed(
+					2
+				)}</b>\n`
+				message += `📊 Базовый балл: <b>${workshop.base_rating.toFixed(
+					2
+				)}/5</b>\n`
+				message += `⭐️ Качество: <b>${workshop.quality_score.toFixed(
+					1
+				)}/5</b> (80%)\n`
+				message += `💬 Коммуникация: <b>${workshop.communication_score.toFixed(
+					1
+				)}/5</b> (20%)\n`
+				message += `⏰ Вовремя: <b>${workshop.on_time_percentage}%</b>\n`
+				message += `📝 Отзывов: <b>${
+					workshop.total_reviews
+				}</b> (×${workshop.log_factor.toFixed(2)})\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'HTML',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal overall rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
 bot.action(/season_quality_(.+)/, async ctx => {
 	await ctx.answerCbQuery()
 	const seasonId = ctx.match[1]
@@ -1734,9 +1863,11 @@ bot.action('view_ratings', async ctx => {
 	await ctx.editMessageText(
 		'Выберите тип рейтинга:',
 		Markup.inlineKeyboard([
+			[Markup.button.callback('🏆 Общий рейтинг', 'rating_overall')],
 			[Markup.button.callback('⭐️ По качеству работ', 'rating_quality')],
 			[Markup.button.callback('💬 По коммуникации', 'rating_communication')],
 			[Markup.button.callback('⏰ Соблюдение сроков', 'rating_delays')],
+			[Markup.button.callback('📅 Сезонный рейтинг', 'user_seasonal_ratings')],
 			[Markup.button.callback('« Назад', 'back_to_rating_menu')],
 		])
 	)
@@ -2183,4 +2314,376 @@ process.once('SIGINT', () => {
 process.once('SIGTERM', () => {
 	mongoClient.close()
 	bot.stop('SIGTERM')
+})
+
+bot.action('rating_overall', async ctx => {
+	try {
+		const workshops = await getOverallRating()
+
+		let message = '🏆 *Общий рейтинг мастерских:*\n\n'
+		message +=
+			'_Формула: (Качество×0.8 + Коммуникация×0.2) × %вовремя × log(отзывы+1)_\n\n'
+
+		workshops.forEach((workshop, index) => {
+			// Медали для топ-3
+			const medal =
+				index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🔸'
+
+			message += `${medal} *${index + 1}. ${workshop.name}*\n`
+			message += `🏆 Общий рейтинг: *${workshop.overall_rating.toFixed(2)}*\n`
+			message += `📊 Базовый балл: *${workshop.base_rating.toFixed(2)}/5*\n`
+			message += `⭐️ Качество: *${workshop.quality_score.toFixed(
+				1
+			)}/5* (80%)\n`
+			message += `💬 Коммуникация: *${workshop.communication_score.toFixed(
+				1
+			)}/5* (20%)\n`
+			message += `⏰ Вовремя: *${workshop.on_time_percentage}%*\n`
+			message += `📝 Отзывов: *${
+				workshop.total_reviews
+			}* (×${workshop.log_factor.toFixed(2)})\n\n`
+		})
+
+		message +=
+			'_Логарифмический множитель учитывает количество отзывов, давая преимущество мастерским с большим опытом._'
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'Markdown',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', 'view_ratings')],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting overall rating:', error)
+		await ctx.reply('Произошла ошибка при получении общего рейтинга.')
+	}
+})
+
+// Обработчики пользовательского сезонного рейтинга
+bot.action('user_seasonal_ratings', async ctx => {
+	console.log(
+		'User seasonal ratings accessed by:',
+		ctx.from.id,
+		ctx.from.first_name
+	)
+	await ctx.answerCbQuery()
+
+	try {
+		const seasons = await getSeasons()
+
+		if (seasons.length === 0) {
+			await ctx.editMessageText(
+				'Сезоны не найдены.',
+				Markup.inlineKeyboard([
+					[Markup.button.callback('« Назад', 'view_ratings')],
+				])
+			)
+			return
+		}
+
+		const keyboard = seasons.map(season => {
+			const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+			const endDate = season.end_date
+				? new Date(season.end_date).toLocaleDateString('ru-RU')
+				: 'Текущий'
+
+			return [
+				Markup.button.callback(
+					`📊 ${season.name} (${startDate} - ${endDate})`,
+					`user_season_rating_${season._id}`
+				),
+			]
+		})
+		keyboard.push([Markup.button.callback('« Назад', 'view_ratings')])
+
+		await ctx.editMessageText(
+			'Выберите сезон для просмотра рейтинга:',
+			Markup.inlineKeyboard(keyboard)
+		)
+	} catch (error) {
+		console.error('Error getting seasons for user rating:', error)
+		await ctx.reply('Произошла ошибка при получении списка сезонов.')
+	}
+})
+
+// Обработчик выбора сезона для пользователей
+bot.action(/user_season_rating_(.+)/, async ctx => {
+	console.log(
+		'User season rating menu accessed by:',
+		ctx.from.id,
+		ctx.from.first_name,
+		'Season ID:',
+		ctx.match[1]
+	)
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		if (!season) {
+			await ctx.reply('Сезон не найден.')
+			return
+		}
+
+		const keyboard = Markup.inlineKeyboard([
+			[
+				Markup.button.callback(
+					'🏆 Общий рейтинг',
+					`user_season_overall_${seasonId}`
+				),
+			],
+			[
+				Markup.button.callback(
+					'⭐️ По качеству',
+					`user_season_quality_${seasonId}`
+				),
+			],
+			[
+				Markup.button.callback(
+					'💬 По коммуникации',
+					`user_season_communication_${seasonId}`
+				),
+			],
+			[
+				Markup.button.callback(
+					'⏰ По срокам',
+					`user_season_timing_${seasonId}`
+				),
+			],
+			[Markup.button.callback('« Назад', 'user_seasonal_ratings')],
+		])
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		await ctx.editMessageText(
+			`📊 *Рейтинг за сезон "${season.name}"*\n` +
+				`📅 Период: ${startDate} - ${endDate}\n\n` +
+				'Выберите тип рейтинга:',
+			{
+				parse_mode: 'Markdown',
+				reply_markup: keyboard.reply_markup,
+			}
+		)
+	} catch (error) {
+		console.error('Error getting season rating menu:', error)
+		await ctx.reply('Произошла ошибка при получении меню рейтинга.')
+	}
+})
+
+// Обработчик общего сезонного рейтинга
+bot.action(/user_season_overall_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+
+		// Применяем ту же формулу общего рейтинга для сезонных данных
+		const workshopsWithRating = workshops.map(workshop => {
+			const qualityScore = parseFloat(workshop.avg_quality) || 0
+			const communicationScore = parseFloat(workshop.avg_communication) || 0
+			const onTimePercentage = parseFloat(workshop.on_time_percentage) / 100
+			const reviewCount = workshop.total_reviews
+
+			const baseRating = qualityScore * 0.8 + communicationScore * 0.2
+			const overallRating =
+				baseRating * onTimePercentage * Math.log(reviewCount + 1)
+
+			return {
+				...workshop,
+				base_rating: baseRating,
+				overall_rating: overallRating,
+				quality_score: qualityScore,
+				communication_score: communicationScore,
+				on_time_percentage_decimal: onTimePercentage,
+				log_factor: Math.log(reviewCount + 1),
+			}
+		})
+
+		workshopsWithRating.sort((a, b) => b.overall_rating - a.overall_rating)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `🏆 *Общий рейтинг за сезон "${season.name}"*\n\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n`
+		message +=
+			'_Формула: (Качество×0.8 + Коммуникация×0.2) × %вовремя × log(отзывы+1)_\n\n'
+
+		if (workshopsWithRating.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshopsWithRating.forEach((workshop, index) => {
+				const medal =
+					index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🔸'
+
+				message += `${medal} *${index + 1}. ${workshop.name}*\n`
+				message += `🏆 Общий рейтинг: *${workshop.overall_rating.toFixed(2)}*\n`
+				message += `📊 Базовый балл: *${workshop.base_rating.toFixed(2)}/5*\n`
+				message += `⭐️ Качество: *${workshop.quality_score.toFixed(
+					1
+				)}/5* (80%)\n`
+				message += `💬 Коммуникация: *${workshop.communication_score.toFixed(
+					1
+				)}/5* (20%)\n`
+				message += `⏰ Вовремя: *${workshop.on_time_percentage}%*\n`
+				message += `📝 Отзывов: *${
+					workshop.total_reviews
+				}* (×${workshop.log_factor.toFixed(2)})\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'Markdown',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `user_season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal overall rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
+// Остальные обработчики сезонных рейтингов
+bot.action(/user_season_quality_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+		workshops.sort(
+			(a, b) => parseFloat(b.avg_quality) - parseFloat(a.avg_quality)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 *Рейтинг по качеству за сезон "${season.name}"*\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `*${index + 1}. ${workshop.name}*\n`
+				message += `⭐️ Качество: *${workshop.avg_quality}/5*\n`
+				message += `📝 Отзывов: *${workshop.total_reviews}*\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'Markdown',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `user_season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal quality rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
+bot.action(/user_season_communication_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+		workshops.sort(
+			(a, b) =>
+				parseFloat(b.avg_communication) - parseFloat(a.avg_communication)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 *Рейтинг по коммуникации за сезон "${season.name}"*\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `*${index + 1}. ${workshop.name}*\n`
+				message += `💬 Коммуникация: *${workshop.avg_communication}/5*\n`
+				message += `📝 Отзывов: *${workshop.total_reviews}*\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'Markdown',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `user_season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal communication rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
+})
+
+bot.action(/user_season_timing_(.+)/, async ctx => {
+	await ctx.answerCbQuery()
+	const seasonId = ctx.match[1]
+
+	try {
+		const season = await db
+			.collection('seasons')
+			.findOne({ _id: new ObjectId(seasonId) })
+		const workshops = await getSeasonalWorkshopStats(seasonId)
+
+		workshops.sort(
+			(a, b) =>
+				parseFloat(b.on_time_percentage) - parseFloat(a.on_time_percentage)
+		)
+
+		const startDate = new Date(season.start_date).toLocaleDateString('ru-RU')
+		const endDate = season.end_date
+			? new Date(season.end_date).toLocaleDateString('ru-RU')
+			: 'Текущий'
+
+		let message = `📊 *Рейтинг по соблюдению сроков за сезон "${season.name}"*\n`
+		message += `📅 Период: ${startDate} - ${endDate}\n\n`
+
+		if (workshops.length === 0) {
+			message += 'За этот период отзывов не найдено.'
+		} else {
+			workshops.forEach((workshop, index) => {
+				message += `*${index + 1}. ${workshop.name}*\n`
+				message += `✅ Вовремя: *${workshop.on_time_percentage}%*\n`
+				message += `📝 Отзывов: *${workshop.total_reviews}*\n\n`
+			})
+		}
+
+		await ctx.editMessageText(message, {
+			parse_mode: 'Markdown',
+			reply_markup: Markup.inlineKeyboard([
+				[Markup.button.callback('« Назад', `user_season_rating_${seasonId}`)],
+			]).reply_markup,
+		})
+	} catch (error) {
+		console.error('Error getting seasonal timing rating:', error)
+		await ctx.reply('Произошла ошибка при получении рейтинга.')
+	}
 })
