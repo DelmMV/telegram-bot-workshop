@@ -2141,21 +2141,13 @@ async function getCurrentSeason() {
 
 async function addSeason(seasonData) {
 	try {
+		const newStart = seasonData.start_date
+		const newEnd = seasonData.end_date || new Date('9999-12-31')
+
 		// Проверяем, нет ли пересекающихся сезонов
 		const existingSeason = await db.collection('seasons').findOne({
-			$or: [
-				{
-					start_date: { $lte: seasonData.start_date },
-					$or: [
-						{ end_date: { $gte: seasonData.start_date } },
-						{ end_date: null },
-					],
-				},
-				{
-					start_date: { $gte: seasonData.start_date },
-					start_date: { $lte: seasonData.end_date || new Date('2099-12-31') },
-				},
-			],
+			start_date: { $lte: newEnd },
+			$or: [{ end_date: null }, { end_date: { $gte: newStart } }],
 		})
 
 		if (existingSeason) {
