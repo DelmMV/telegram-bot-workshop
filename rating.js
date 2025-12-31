@@ -21,12 +21,14 @@ function isAdmin(userId) {
 }
 
 function escapeHTML(text) {
-	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+	const normalizedText = text == null ? '' : String(text)
+	return normalizedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 // Функция экранирования специальных символов Markdown
 function escapeMarkdown(text) {
-	return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')
+	const normalizedText = text == null ? '' : String(text)
+	return normalizedText.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')
 }
 
 // Функции для работы с базой данных
@@ -1989,7 +1991,7 @@ bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 	try {
 		const totalReviews = await db.collection('feedback').countDocuments({
 			workshop: workshopName,
-			text_feedback: { $exists: true, $ne: '' },
+			text_feedback: { $exists: true, $nin: ['', null] },
 		})
 
 		const totalPages = Math.ceil(totalReviews / reviewsPerPage)
@@ -1998,7 +2000,7 @@ bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 			.collection('feedback')
 			.find({
 				workshop: workshopName,
-				text_feedback: { $exists: true, $ne: '' },
+				text_feedback: { $exists: true, $nin: ['', null] },
 			})
 			.sort({ created_at: -1 })
 			.skip(page * reviewsPerPage)
