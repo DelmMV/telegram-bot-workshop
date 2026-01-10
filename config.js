@@ -11,7 +11,7 @@ module.exports = {
     // Администрирование
     ADMIN_CHAT_ID: process.env.ADMIN_CHAT_ID,
     ADMIN_IDS: process.env.ADMIN_IDS.split(',').map(id => parseInt(id)),
-    API_PORT: Number(process.env.API_PORT) || 3001,
+    API_PORT: Number(process.env.API_PORT) || 5800,
     WEBAPP_URL: process.env.WEBAPP_URL,
     WEBAPP_ORIGINS: process.env.WEBAPP_ORIGINS
         ? process.env.WEBAPP_ORIGINS.split(',').map(origin => origin.trim())

@@ -2755,23 +2755,24 @@ async function setupDatabase() {
 }
 
 async function connectToMongo() {
-	try {
-		await mongoClient.connect()
-		db = mongoClient.db(config.DB_NAME)
-		await setupDatabase()
-		console.log('Connected to MongoDB')
-	} catch (error) {
-		console.error('MongoDB connection error:', error)
-	}
+	await mongoClient.connect()
+	db = mongoClient.db(config.DB_NAME)
+	await setupDatabase()
+	console.log('Connected to MongoDB')
 }
 
-connectToMongo().then(() => {
-	startApiServer()
-	bot.launch().then(async () => {
-		console.log('Bot started')
-		await setupWebAppMenuButton()
+connectToMongo()
+	.then(() => {
+		startApiServer()
+		return bot.launch().then(async () => {
+			console.log('Bot started')
+			await setupWebAppMenuButton()
+		})
 	})
-})
+	.catch(error => {
+		console.error('MongoDB connection error:', error)
+		process.exit(1)
+	})
 
 // Корректное завершение работы
 process.once('SIGINT', () => {
