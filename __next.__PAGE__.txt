@@ -1,9 +1,9 @@
 1:"$Sreact.fragment"
 2:I[31288,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"ClientPageRoot"]
-3:I[70625,["/telegram-bot-workshop/_next/static/chunks/42ddb8d678d8bc93.js"],"default"]
+3:I[70625,["/telegram-bot-workshop/_next/static/chunks/f969826352af161c.js"],"default"]
 6:I[4708,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"OutletBoundary"]
 7:"$Sreact.suspense"
-0:{"buildId":"aidzRu7W7KjJiR8FQXg4r","rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/telegram-bot-workshop/_next/static/chunks/42ddb8d678d8bc93.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"loading":null,"isPartial":false}
+0:{"buildId":"3Ww-GdZHX51sXkXTMS3I0","rsc":["$","$1","c",{"children":[["$","$L2",null,{"Component":"$3","serverProvidedParams":{"searchParams":{},"params":{},"promises":["$@4","$@5"]}}],[["$","script","script-0",{"src":"/telegram-bot-workshop/_next/static/chunks/f969826352af161c.js","async":true}]],["$","$L6",null,{"children":["$","$7",null,{"name":"Next.MetadataOutlet","children":"$@8"}]}]]}],"loading":null,"isPartial":false}
 4:{}
 5:"$0:rsc:props:children:0:props:serverProvidedParams:params"
 8:null
