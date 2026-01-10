@@ -49,15 +49,16 @@ async function fetchJson<T>(
 	}
 
 	const url = buildUrl(path, params)
+	const headers = {
+		'Content-Type': 'application/json',
+		...(options.headers ?? {}),
+	}
 	console.log('[API] Request URL:', url)
-	console.log('[API] Request headers:', options.headers)
+	console.log('[API] Request headers:', headers)
 
 	const response = await fetch(url, {
 		...options,
-		headers: {
-			'Content-Type': 'application/json',
-			...(options.headers ?? {}),
-		},
+		headers,
 	})
 
 	console.log('[API] Response status:', response.status)

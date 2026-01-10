@@ -1,4 +1,4 @@
 1:"$Sreact.fragment"
 2:I[63810,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"default"]
 3:I[27307,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"default"]
-0:{"buildId":"aidzRu7W7KjJiR8FQXg4r","rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"loading":null,"isPartial":false}
+0:{"buildId":"3Ww-GdZHX51sXkXTMS3I0","rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"loading":null,"isPartial":false}

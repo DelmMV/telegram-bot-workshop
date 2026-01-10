@@ -379,6 +379,13 @@ export default function HomePage() {
 				</div>
 			)}
 
+			{initData.length === 0 && (
+				<div className="section" style={{ marginTop: 18 }}>
+					<div className="status error">
+						Отсутствует initData (длина: 0). Откройте мини‑апп через Telegram.
+					</div>
+				</div>
+			)}
 			{workshopsError && (
 				<div className="section" style={{ marginTop: 18 }}>
 					<div className="status error">{workshopsError}</div>
