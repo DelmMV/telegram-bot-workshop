@@ -1,6 +1,8 @@
 const { Telegraf, Scenes, session } = require('telegraf')
 const { MongoClient, ObjectId } = require('mongodb')
 const { Markup } = require('telegraf')
+const crypto = require('crypto')
+const express = require('express')
 const config = require('./config')
 
 // Инициализация бота
@@ -31,6 +33,105 @@ function escapeMarkdown(text) {
 	return normalizedText.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&')
 }
 
+function isIgnoredTelegramError(error) {
+	const errorCode = error?.response?.error_code
+	if (errorCode !== 400) return false
+	const description = error?.response?.description ?? ''
+	return (
+		description.includes('message is not modified') ||
+		description.includes('query is too old') ||
+		description.includes('query ID is invalid')
+	)
+}
+
+function getInitDataFromRequest(req) {
+	const headerInitData = req.headers['x-telegram-init-data']
+	if (typeof headerInitData === 'string') return headerInitData
+	if (Array.isArray(headerInitData) && headerInitData[0]) return headerInitData[0]
+	if (typeof req.body?.initData === 'string') return req.body.initData
+	if (typeof req.query?.initData === 'string') return req.query.initData
+	return ''
+}
+
+function buildDataCheckString(params) {
+	return [...params.entries()]
+		.sort(([firstKey], [secondKey]) => firstKey.localeCompare(secondKey))
+		.map(([key, value]) => `${key}=${value}`)
+		.join('\n')
+}
+
+function getTelegramUserFromParams(params) {
+	const userValue = params.get('user')
+	if (!userValue) return null
+	try {
+		return JSON.parse(userValue)
+	} catch (error) {
+		return null
+	}
+}
+
+function validateWebAppInitData(initData, botToken, maxAgeSeconds) {
+	if (!initData || !botToken) {
+		return { isValid: false, reason: 'missing_init_data' }
+	}
+
+	const params = new URLSearchParams(initData)
+	const hash = params.get('hash')
+	if (!hash) {
+		return { isValid: false, reason: 'missing_hash' }
+	}
+
+	params.delete('hash')
+	const dataCheckString = buildDataCheckString(params)
+	const secretKey = crypto
+		.createHmac('sha256', 'WebAppData')
+		.update(botToken)
+		.digest()
+	const calculatedHash = crypto
+		.createHmac('sha256', secretKey)
+		.update(dataCheckString)
+		.digest('hex')
+
+	if (calculatedHash !== hash) {
+		return { isValid: false, reason: 'invalid_hash' }
+	}
+
+	const authDate = Number(params.get('auth_date'))
+	if (Number.isFinite(authDate) && maxAgeSeconds) {
+		const nowSeconds = Math.floor(Date.now() / 1000)
+		if (nowSeconds - authDate > maxAgeSeconds) {
+			return { isValid: false, reason: 'expired_init_data' }
+		}
+	}
+
+	return {
+		isValid: true,
+		user: getTelegramUserFromParams(params),
+		data: Object.fromEntries(params.entries()),
+	}
+}
+
+function requireWebAppAuth(req, res, next) {
+	const initData = getInitDataFromRequest(req)
+	const validation = validateWebAppInitData(
+		initData,
+		config.BOT_TOKEN,
+		config.WEBAPP_AUTH_MAX_AGE_SECONDS
+	)
+
+	if (!validation.isValid) {
+		return res.status(401).json({
+			ok: false,
+			error: 'unauthorized',
+			reason: validation.reason,
+		})
+	}
+
+	req.telegramUser = validation.user
+	req.telegramInitData = initData
+	return next()
+}
+
 // Функции для работы с базой данных
 async function getWorkshops() {
 	try {
@@ -47,57 +148,71 @@ async function getWorkshops() {
 	}
 }
 
+async function buildAdminFeedbackMessage(feedback) {
+	const workshop = await db
+		.collection('workshops')
+		.findOne({ name: feedback.workshop })
+
+	const truncatedFeedback =
+		feedback.text_feedback.length > MAX_FEEDBACK_LENGTH
+			? feedback.text_feedback.substring(0, MAX_FEEDBACK_LENGTH) + '...'
+			: feedback.text_feedback
+
+	let message = '📝 <b>Новый отзыв!</b>\n\n'
+	message += `👤 <b>Пользователь:</b> ${escapeHTML(feedback.first_name)}`
+	if (feedback.last_name) message += ` ${escapeHTML(feedback.last_name)}`
+	if (feedback.username) message += ` (@${escapeHTML(feedback.username)})`
+	message += `\n🆔 ID: <code>${feedback.user_id}</code>\n\n`
+
+	message += `🏢 <b>Мастерская:</b> ${escapeHTML(feedback.workshop)}\n`
+	if (workshop) {
+		message += `📍 <b>Адрес:</b> ${escapeHTML(workshop.address)}\n`
+	}
+
+	message += `📊 <b>Оценки:</b>\n`
+	message += `⭐️ Качество: ${feedback.quality_rating}/5\n`
+	message += `💬 Коммуникация: ${feedback.communication_rating}/5\n`
+	message += `⏰ Выполнено вовремя: ${feedback.on_time}\n\n`
+
+	message += `💭 <b>Отзыв:</b> ${escapeHTML(truncatedFeedback)}\n\n`
+
+	const stats = await getWorkshopStats(feedback.workshop)
+	message += `📈 <b>Текущая статистика мастерской:</b>\n`
+	message += `📝 Всего отзывов: ${stats.total_reviews}\n`
+	message += `⭐️ Средняя оценка качества: ${
+		stats.avg_quality ? stats.avg_quality.toFixed(2) : '0'
+	}/5\n`
+	message += `💬 Средняя оценка коммуникации: ${
+		stats.avg_communication ? stats.avg_communication.toFixed(2) : '0'
+	}/5\n`
+	message += `✅ Выполнено вовремя: ${stats.on_time_count}\n`
+	message += `❌ С задержкой: ${stats.delayed_count}\n\n`
+
+	message += `🗑 Удалить отзыв: /delete_feedback ${feedback._id}`
+
+	return message
+}
+
+async function sendAdminFeedbackNotification(telegram, feedback) {
+	if (!ADMIN_CHAT_ID || !telegram) return
+	const message = await buildAdminFeedbackMessage(feedback)
+	await telegram.sendMessage(ADMIN_CHAT_ID, message, {
+		parse_mode: 'HTML',
+		disable_web_page_preview: true,
+	})
+}
+
 async function notifyAdminsAboutNewFeedback(ctx, feedback) {
 	try {
-		const workshop = await db
-			.collection('workshops')
-			.findOne({ name: feedback.workshop })
+		await sendAdminFeedbackNotification(ctx.telegram, feedback)
+	} catch (error) {
+		console.error('Error sending admin notification:', error)
+	}
+}
 
-		// Обрезаем текст отзыва, если он слишком длинный
-		const maxFeedbackLength = MAX_FEEDBACK_LENGTH // Можно настроить по необходимости
-		const truncatedFeedback =
-			feedback.text_feedback.length > maxFeedbackLength
-				? feedback.text_feedback.substring(0, maxFeedbackLength) + '...'
-				: feedback.text_feedback
-
-		let message = '📝 <b>Новый отзыв!</b>\n\n'
-		message += `👤 <b>Пользователь:</b> ${escapeHTML(feedback.first_name)}`
-		if (feedback.last_name) message += ` ${escapeHTML(feedback.last_name)}`
-		if (feedback.username) message += ` (@${escapeHTML(feedback.username)})`
-		message += `\n🆔 ID: <code>${feedback.user_id}</code>\n\n`
-
-		message += `🏢 <b>Мастерская:</b> ${escapeHTML(feedback.workshop)}\n`
-		if (workshop) {
-			message += `📍 <b>Адрес:</b> ${escapeHTML(workshop.address)}\n`
-		}
-
-		message += `📊 <b>Оценки:</b>\n`
-		message += `⭐️ Качество: ${feedback.quality_rating}/5\n`
-		message += `💬 Коммуникация: ${feedback.communication_rating}/5\n`
-		message += `⏰ Выполнено вовремя: ${feedback.on_time}\n\n`
-
-		message += `💭 <b>Отзыв:</b> ${escapeHTML(truncatedFeedback)}\n\n`
-
-		// Добавляем текущую статистику мастерской
-		const stats = await getWorkshopStats(feedback.workshop)
-		message += `📈 <b>Текущая статистика мастерской:</b>\n`
-		message += `📝 Всего отзывов: ${stats.total_reviews}\n`
-		message += `⭐️ Средняя оценка качества: ${
-			stats.avg_quality ? stats.avg_quality.toFixed(2) : '0'
-		}/5\n`
-		message += `💬 Средняя оценка коммуникации: ${
-			stats.avg_communication ? stats.avg_communication.toFixed(2) : '0'
-		}/5\n`
-		message += `✅ Выполнено вовремя: ${stats.on_time_count}\n`
-		message += `❌ С задержкой: ${stats.delayed_count}\n\n`
-
-		message += `🗑 Удалить отзыв: /delete_feedback ${feedback._id}`
-
-		// Отправляем сообщение в админский чат
-		await ctx.telegram.sendMessage(ADMIN_CHAT_ID, message, {
-			parse_mode: 'HTML',
-			disable_web_page_preview: true,
-		})
+async function notifyAdminsAboutNewFeedbackFromApi(feedback) {
+	try {
+		await sendAdminFeedbackNotification(bot.telegram, feedback)
 	} catch (error) {
 		console.error('Error sending admin notification:', error)
 	}
@@ -228,6 +343,37 @@ function calculateAverage(feedbacks, field) {
 	return (sum / feedbacks.length).toFixed(2)
 }
 
+function buildOverallRatingEntries(workshops) {
+	return workshops.map(workshop => {
+		const qualityScore = parseFloat(workshop.avg_quality) || 0
+		const communicationScore = parseFloat(workshop.avg_communication) || 0
+		const onTimePercentage = parseFloat(workshop.on_time_percentage) / 100 || 0
+		const reviewCount = workshop.total_reviews
+		const baseRating = qualityScore * 0.8 + communicationScore * 0.2
+		const overallRating = baseRating * onTimePercentage * Math.log(reviewCount + 1)
+
+		return {
+			...workshop,
+			base_rating: baseRating,
+			overall_rating: overallRating,
+			quality_score: qualityScore,
+			communication_score: communicationScore,
+			on_time_percentage_decimal: onTimePercentage,
+			log_factor: Math.log(reviewCount + 1),
+		}
+	})
+}
+
+function normalizeOnTimeValue(value) {
+	if (value === true || value === 'Да' || value === 'да') return 'Да'
+	if (value === false || value === 'Нет' || value === 'нет') return 'Нет'
+	return null
+}
+
+function isValidRating(value) {
+	return Number.isInteger(value) && value >= 1 && value <= 5
+}
+
 /**
  * Функция расчета общего рейтинга по формуле:
  * Рейтинг = (Качество * 0.8 + Коммуникации * 0.2) * %_вовремя * log(Количество_отзывов + 1)
@@ -315,16 +461,37 @@ function getAdminKeyboard() {
 }
 
 // Создаем клавиатуру для главного меню
-const mainKeyboard = Markup.keyboard([
-	['👍 Оставить отзыв', '📊 Рейтинг/Отзывы'],
-	['📋 Список сервисов', 'ℹ️ Помощь'],
-]).resize()
-
 function getMainKeyboard() {
-	return Markup.keyboard([
+	const rows = [
 		['👍 Оставить отзыв', '📊 Рейтинг/Отзывы'],
 		['📋 Список сервисов', 'ℹ️ Помощь'],
-	]).resize()
+	]
+	if (config.WEBAPP_URL) {
+		rows.push(['🧩 Мини-приложение'])
+	}
+	return Markup.keyboard(rows).resize()
+}
+
+function getWebAppButtonMarkup() {
+	if (!config.WEBAPP_URL) return null
+	return Markup.inlineKeyboard([
+		[Markup.button.webApp('Открыть мини-приложение', config.WEBAPP_URL)],
+	])
+}
+
+async function setupWebAppMenuButton() {
+	if (!config.WEBAPP_URL) return
+	try {
+		await bot.telegram.setChatMenuButton({
+			menu_button: {
+				type: 'web_app',
+				text: 'Мини-приложение',
+				web_app: { url: config.WEBAPP_URL },
+			},
+		})
+	} catch (error) {
+		console.error('Error setting web app menu button:', error)
+	}
 }
 
 // Сцены для голосования
@@ -883,15 +1050,9 @@ const stage = new Scenes.Stage([
 bot.use(session())
 bot.use(stage.middleware())
 
-// Глобальный обработчик ошибок: игнорируем безвредную ошибку "message is not modified"
+// Глобальный обработчик ошибок: игнорируем безвредные ошибки Telegram
 bot.catch((err, ctx) => {
-	if (
-		err &&
-		err.response &&
-		err.response.error_code === 400 &&
-		err.response.description &&
-		err.response.description.includes('message is not modified')
-	) {
+	if (isIgnoredTelegramError(err)) {
 		return
 	}
 	console.error('Unhandled bot error:', err)
@@ -938,7 +1099,8 @@ bot.command('help', ctx => {
 		'ℹ️ <b>Справка по использованию бота</b>\n\n' +
 		'<b>Основные команды:</b>\n' +
 		'/start - Главное меню\n' +
-		'/help - Эта справка\n\n' +
+		'/help - Эта справка\n' +
+		'/app - Мини-приложение\n\n' +
 		'<b>Как оставить отзыв:</b>\n' +
 		'1️⃣ Нажмите "👍 Оставить отзыв"\n' +
 		'2️⃣ Выберите мастерскую\n' +
@@ -957,6 +1119,14 @@ bot.command('help', ctx => {
 		'❓ <i>Если у вас возникли вопросы, обратитесь к администратору.</i>'
 
 	ctx.reply(helpMessage, { parse_mode: 'HTML' })
+})
+
+bot.command('app', ctx => {
+	const webAppMarkup = getWebAppButtonMarkup()
+	if (!webAppMarkup) {
+		return ctx.reply('Мини-приложение пока не настроено.')
+	}
+	return ctx.reply('Открыть мини-приложение:', webAppMarkup)
 })
 
 bot.command('admin', async ctx => {
@@ -1835,6 +2005,14 @@ bot.hears('📋 Список сервисов', async ctx => {
 	await ctx.replyWithMarkdown(message) // Используем Markdown для форматирования
 })
 
+bot.hears('🧩 Мини-приложение', ctx => {
+	const webAppMarkup = getWebAppButtonMarkup()
+	if (!webAppMarkup) {
+		return ctx.reply('Мини-приложение пока не настроено.')
+	}
+	return ctx.reply('Открыть мини-приложение:', webAppMarkup)
+})
+
 bot.hears('ℹ️ Помощь', ctx => {
 	const helpMessage =
 		'ℹ️ <b>Справка по использованию бота</b>\n\n' +
@@ -2062,6 +2240,9 @@ bot.action(/show_reviews_(.+)_(\d+)/, async ctx => {
 			reply_markup: Markup.inlineKeyboard(keyboard).reply_markup,
 		})
 	} catch (error) {
+		if (isIgnoredTelegramError(error)) {
+			return
+		}
 		console.error('Error getting workshop reviews:', error)
 		await ctx.reply('Произошла ошибка при получении отзывов.')
 	}
@@ -2244,6 +2425,280 @@ async function getSeasonalWorkshopStats(seasonId) {
 	}
 }
 
+function mapWorkshopStats(workshop) {
+	return {
+		name: workshop.name,
+		address: workshop.address,
+		description: workshop.description,
+		avg_quality: Number(workshop.avg_quality),
+		avg_communication: Number(workshop.avg_communication),
+		total_reviews: workshop.total_reviews,
+		on_time_count: workshop.on_time_count,
+		on_time_percentage: Number(workshop.on_time_percentage),
+	}
+}
+
+function mapSeason(season) {
+	return {
+		id: season._id.toString(),
+		name: season.name,
+		description: season.description,
+		start_date: season.start_date ? season.start_date.toISOString() : null,
+		end_date: season.end_date ? season.end_date.toISOString() : null,
+	}
+}
+
+function mapReview(review) {
+	return {
+		id: review._id.toString(),
+		workshop: review.workshop,
+		quality_rating: review.quality_rating,
+		communication_rating: review.communication_rating,
+		on_time: review.on_time,
+		text_feedback: review.text_feedback,
+		created_at: review.created_at ? review.created_at.toISOString() : null,
+	}
+}
+
+function isAllowedOrigin(origin) {
+	if (!origin) return false
+	if (config.WEBAPP_ORIGINS.length === 0) return true
+	return config.WEBAPP_ORIGINS.includes(origin)
+}
+
+function startApiServer() {
+	const app = express()
+	app.disable('x-powered-by')
+	app.use(express.json({ limit: '1mb' }))
+
+	app.use((req, res, next) => {
+		const origin = req.headers.origin
+		if (isAllowedOrigin(origin)) {
+			res.setHeader('Access-Control-Allow-Origin', origin)
+			res.setHeader('Vary', 'Origin')
+		}
+		res.setHeader(
+			'Access-Control-Allow-Headers',
+			'Content-Type, X-Telegram-Init-Data'
+		)
+		res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+		if (req.method === 'OPTIONS') {
+			return res.status(204).end()
+		}
+		return next()
+	})
+
+	app.get('/api/health', (req, res) => {
+		res.json({ ok: true })
+	})
+
+	app.get('/api/workshops', async (req, res) => {
+		try {
+			const workshops = await getWorkshopsList()
+			res.json({
+				ok: true,
+				workshops: workshops.map(mapWorkshopStats),
+			})
+		} catch (error) {
+			console.error('Error getting workshops for API:', error)
+			res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.get('/api/seasons', async (req, res) => {
+		try {
+			const seasons = await getSeasons()
+			res.json({ ok: true, seasons: seasons.map(mapSeason) })
+		} catch (error) {
+			console.error('Error getting seasons for API:', error)
+			res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.get('/api/ratings', async (req, res) => {
+		const type = String(req.query.type || 'overall')
+		try {
+			if (type === 'overall') {
+				const workshops = await getOverallRating()
+				return res.json({
+					ok: true,
+					type,
+					workshops: workshops.map(workshop => ({
+						...mapWorkshopStats(workshop),
+						overall_rating: Number(workshop.overall_rating),
+						base_rating: Number(workshop.base_rating),
+						quality_score: Number(workshop.quality_score),
+						communication_score: Number(workshop.communication_score),
+						log_factor: Number(workshop.log_factor),
+					})),
+				})
+			}
+
+			const workshops = await getWorkshopsList()
+			const normalized = workshops.map(mapWorkshopStats)
+			if (type === 'quality') {
+				normalized.sort((a, b) => b.avg_quality - a.avg_quality)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+			if (type === 'communication') {
+				normalized.sort((a, b) => b.avg_communication - a.avg_communication)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+			if (type === 'delays') {
+				normalized.sort((a, b) => b.on_time_percentage - a.on_time_percentage)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+
+			return res.status(400).json({ ok: false, error: 'invalid_type' })
+		} catch (error) {
+			console.error('Error getting ratings for API:', error)
+			return res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.get('/api/ratings/seasonal', async (req, res) => {
+		const type = String(req.query.type || 'overall')
+		const seasonId = String(req.query.seasonId || '')
+
+		if (!seasonId) {
+			return res.status(400).json({ ok: false, error: 'missing_season_id' })
+		}
+
+		try {
+			const workshops = await getSeasonalWorkshopStats(seasonId)
+			const normalized = workshops.map(mapWorkshopStats)
+
+			if (type === 'overall') {
+				const overall = buildOverallRatingEntries(normalized)
+				overall.sort((a, b) => b.overall_rating - a.overall_rating)
+				return res.json({ ok: true, type, workshops: overall })
+			}
+			if (type === 'quality') {
+				normalized.sort((a, b) => b.avg_quality - a.avg_quality)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+			if (type === 'communication') {
+				normalized.sort((a, b) => b.avg_communication - a.avg_communication)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+			if (type === 'timing') {
+				normalized.sort((a, b) => b.on_time_percentage - a.on_time_percentage)
+				return res.json({ ok: true, type, workshops: normalized })
+			}
+
+			return res.status(400).json({ ok: false, error: 'invalid_type' })
+		} catch (error) {
+			console.error('Error getting seasonal ratings for API:', error)
+			return res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.get('/api/reviews', async (req, res) => {
+		const workshop = String(req.query.workshop || '')
+		const page = Math.max(Number.parseInt(req.query.page, 10) || 0, 0)
+		const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 5, 1), 10)
+
+		if (!workshop) {
+			return res.status(400).json({ ok: false, error: 'missing_workshop' })
+		}
+
+		try {
+			const query = {
+				workshop,
+				text_feedback: { $exists: true, $nin: ['', null] },
+			}
+			const totalReviews = await db.collection('feedback').countDocuments(query)
+			const totalPages = Math.ceil(totalReviews / limit)
+			const reviews = await db
+				.collection('feedback')
+				.find(query)
+				.sort({ created_at: -1 })
+				.skip(page * limit)
+				.limit(limit)
+				.toArray()
+
+			return res.json({
+				ok: true,
+				page,
+				total_pages: totalPages,
+				total_reviews: totalReviews,
+				reviews: reviews.map(mapReview),
+			})
+		} catch (error) {
+			console.error('Error getting reviews for API:', error)
+			return res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.post('/api/reviews', requireWebAppAuth, async (req, res) => {
+		const workshop = String(req.body.workshop || '')
+		const qualityRating = Number(req.body.qualityRating ?? req.body.quality_rating)
+		const communicationRating = Number(
+			req.body.communicationRating ?? req.body.communication_rating
+		)
+		const onTimeValue = normalizeOnTimeValue(req.body.onTime ?? req.body.on_time)
+		const textFeedback = String(req.body.textFeedback ?? req.body.text_feedback ?? '')
+			.trim()
+			.slice(0, MAX_FEEDBACK_LENGTH)
+
+		if (!workshop || !isValidRating(qualityRating) || !isValidRating(communicationRating)) {
+			return res.status(400).json({ ok: false, error: 'invalid_payload' })
+		}
+		if (!onTimeValue) {
+			return res.status(400).json({ ok: false, error: 'invalid_on_time' })
+		}
+
+		const telegramUser = req.telegramUser
+		if (!telegramUser || !telegramUser.id) {
+			return res.status(401).json({ ok: false, error: 'invalid_user' })
+		}
+
+		try {
+			const workshopExists = await db
+				.collection('workshops')
+				.findOne({ name: workshop })
+			if (!workshopExists) {
+				return res.status(404).json({ ok: false, error: 'workshop_not_found' })
+			}
+
+			if (config.ENABLE_DAILY_VOTE_LIMIT) {
+				const canVote = await canUserVote(telegramUser.id)
+				if (!canVote) {
+					return res
+						.status(429)
+						.json({ ok: false, error: 'daily_limit_reached' })
+				}
+			}
+
+			const feedback = {
+				user_id: telegramUser.id,
+				first_name: telegramUser.first_name,
+				last_name: telegramUser.last_name,
+				username: telegramUser.username,
+				workshop: workshop,
+				quality_rating: qualityRating,
+				on_time: onTimeValue,
+				communication_rating: communicationRating,
+				text_feedback: textFeedback,
+				created_at: new Date(),
+			}
+
+			const result = await db.collection('feedback').insertOne(feedback)
+			feedback._id = result.insertedId
+
+			await notifyAdminsAboutNewFeedbackFromApi(feedback)
+			return res.json({ ok: true, id: result.insertedId.toString() })
+		} catch (error) {
+			console.error('Error creating feedback from API:', error)
+			return res.status(500).json({ ok: false, error: 'server_error' })
+		}
+	})
+
+	app.listen(config.API_PORT, () => {
+		console.log(`API server listening on ${config.API_PORT}`)
+	})
+}
+
 // Подключение к MongoDB и запуск бота
 async function initializeSeasons() {
 	try {
@@ -2311,8 +2766,10 @@ async function connectToMongo() {
 }
 
 connectToMongo().then(() => {
-	bot.launch().then(() => {
+	startApiServer()
+	bot.launch().then(async () => {
 		console.log('Bot started')
+		await setupWebAppMenuButton()
 	})
 })
 
