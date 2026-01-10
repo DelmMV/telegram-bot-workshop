@@ -1,7 +1,12 @@
 self.__BUILD_MANIFEST = {
   "__rewrites": {
     "afterFiles": [],
-    "beforeFiles": [],
+    "beforeFiles": [
+      {
+        "source": "/telegram-bot-workshop//_next/:path+",
+        "destination": "/telegram-bot-workshop/_next/:path+"
+      }
+    ],
     "fallback": []
   },
   "sortedPages": [
