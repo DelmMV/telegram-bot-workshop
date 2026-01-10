@@ -6,3 +6,5 @@ node_modules/
 # macOS
 .DS_Store
 AGENTS.md
+webapp/out/
+webapp/.next

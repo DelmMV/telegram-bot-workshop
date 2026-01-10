@@ -3,8 +3,17 @@
   "pages404": true,
   "appType": "app",
   "caseSensitive": false,
-  "basePath": "",
+  "basePath": "/telegram-bot-workshop",
   "redirects": [
+    {
+      "source": "/telegram-bot-workshop",
+      "destination": "/telegram-bot-workshop/",
+      "basePath": false,
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^/telegram-bot-workshop$"
+    },
     {
       "source": "/:file((?!\\.well-known(?:/.*)?)(?:[^/]+/)*[^/]+\\.\\w+)/",
       "destination": "/:file",
@@ -30,7 +39,13 @@
   ],
   "headers": [],
   "rewrites": {
-    "beforeFiles": [],
+    "beforeFiles": [
+      {
+        "source": "/telegram-bot-workshop//_next/:path+",
+        "destination": "/telegram-bot-workshop/_next/:path+",
+        "regex": "^/telegram-bot-workshop//_next(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))(?:/)?$"
+      }
+    ],
     "afterFiles": [],
     "fallback": []
   },

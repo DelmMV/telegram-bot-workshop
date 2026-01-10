@@ -7,7 +7,7 @@
     "build": "next build",
     "export": "next build",
     "start": "next start",
-    "deploy": "npm run build && node -e \"require('fs').writeFileSync('out/.nojekyll','')\" && npx gh-pages -d out -b gh-pages"
+    "deploy": "npm run build && node -e \"require('fs').writeFileSync('out/.nojekyll','')\" && npx gh-pages -d out -b gh-pages --dotfiles"
   },
   "dependencies": {
     "next": "^16.1.1",

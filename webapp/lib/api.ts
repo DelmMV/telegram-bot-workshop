@@ -9,19 +9,23 @@ import type {
 } from './types'
 
 const DEFAULT_API_PORT = 5800
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 
 function normalizeApiBaseUrl(value: string) {
 	if (!value) return ''
 	try {
 		const url = new URL(value)
-		if (!url.port) url.port = String(DEFAULT_API_PORT)
+		const isLocalHost = LOCAL_HOSTS.has(url.hostname)
+		if (!url.port && isLocalHost) url.port = String(DEFAULT_API_PORT)
 		return url.toString().replace(/\/$/, '')
 	} catch (error) {
 		return value
 	}
 }
 
-const API_BASE_URL = normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL ?? '')
+const API_BASE_URL = normalizeApiBaseUrl(
+	process.env.NEXT_PUBLIC_API_BASE_URL || 'https://service.monopiter.ru'
+)
 
 function buildUrl(path: string, params?: Record<string, string | number | undefined>) {
 	const url = new URL(path, API_BASE_URL)

@@ -55,6 +55,32 @@ type TelegramWindow = Window & {
 	}
 }
 
+function isTelegramUser(value: unknown): value is TelegramUser {
+	if (!value || typeof value !== 'object') return false
+	const record = value as Record<string, unknown>
+	if (typeof record.id !== 'number') return false
+	if (record.first_name !== undefined && typeof record.first_name !== 'string')
+		return false
+	if (record.last_name !== undefined && typeof record.last_name !== 'string')
+		return false
+	if (record.username !== undefined && typeof record.username !== 'string')
+		return false
+	return true
+}
+
+function parseTelegramUser(initData: string) {
+	if (!initData) return null
+	const userValue = new URLSearchParams(initData).get('user')
+	if (!userValue) return null
+	try {
+		const parsed: unknown = JSON.parse(userValue)
+		if (!isTelegramUser(parsed)) return null
+		return parsed
+	} catch (error) {
+		return null
+	}
+}
+
 function formatDate(value: string | null) {
 	if (!value) return ''
 	return new Date(value).toLocaleDateString('ru-RU')
@@ -130,8 +156,9 @@ export default function HomePage() {
 
 		webApp.ready()
 		webApp.expand()
+		const fallbackUser = parseTelegramUser(webApp.initData || '')
 		setInitData(webApp.initData || '')
-		setTelegramUser(webApp.initDataUnsafe?.user ?? null)
+		setTelegramUser(webApp.initDataUnsafe?.user ?? fallbackUser)
 		applyTelegramTheme(webApp)
 
 		const themeHandler = () => applyTelegramTheme(webApp)
