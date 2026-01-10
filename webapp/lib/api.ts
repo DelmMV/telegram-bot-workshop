@@ -49,6 +49,9 @@ async function fetchJson<T>(
 	}
 
 	const url = buildUrl(path, params)
+	console.log('[API] Request URL:', url)
+	console.log('[API] Request headers:', options.headers)
+
 	const response = await fetch(url, {
 		...options,
 		headers: {
@@ -57,8 +60,12 @@ async function fetchJson<T>(
 		},
 	})
 
+	console.log('[API] Response status:', response.status)
+	console.log('[API] Response headers:', Object.fromEntries(response.headers.entries()))
+
 	const data = (await response.json()) as T
 	if (!response.ok) {
+		console.error('[API] Error response:', data)
 		throw new Error((data as { error?: string })?.error || 'API error')
 	}
 	return data

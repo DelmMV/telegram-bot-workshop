@@ -5,6 +5,23 @@ const crypto = require('crypto')
 const express = require('express')
 const config = require('./config')
 
+// Проверка конфига
+if (!config.BOT_TOKEN) {
+	console.error('ERROR: BOT_TOKEN not set in config.js or .env')
+	process.exit(1)
+}
+if (!config.MONGODB_URI) {
+	console.error('ERROR: MONGODB_URI not set in config.js or .env')
+	process.exit(1)
+}
+console.log('Loaded config:', {
+	API_PORT: config.API_PORT,
+	WEBAPP_ORIGINS: config.WEBAPP_ORIGINS,
+	BOT_TOKEN: config.BOT_TOKEN ? '***' : 'MISSING',
+	MONGODB_URI: config.MONGODB_URI ? '***' : 'MISSING',
+})
+
+
 // Инициализация бота
 const bot = new Telegraf(config.BOT_TOKEN)
 const ADMIN_CHAT_ID = config.ADMIN_CHAT_ID
@@ -1046,9 +1063,22 @@ const stage = new Scenes.Stage([
 	endSeasonScene,
 ])
 
-// Подключение middleware
-bot.use(session())
-bot.use(stage.middleware())
+	// Подключение middleware
+	bot.use(session())
+	bot.use(stage.middleware())
+
+	// Логирование сообщений для отладки
+	bot.use((ctx, next) => {
+		console.log('[BOT] Update type:', ctx.updateType)
+		if (ctx.message) {
+			console.log('[BOT] Message:', ctx.message.text, 'from', ctx.from?.id)
+		}
+		if (ctx.callbackQuery) {
+			console.log('[BOT] Callback:', ctx.callbackQuery.data, 'from', ctx.from?.id)
+		}
+		return next()
+	})
+
 
 // Глобальный обработчик ошибок: игнорируем безвредные ошибки Telegram
 bot.catch((err, ctx) => {
@@ -2473,9 +2503,16 @@ function startApiServer() {
 
 	app.use((req, res, next) => {
 		const origin = req.headers.origin
+		console.log('[API] Incoming request:', req.method, req.url)
+		console.log('[API] Origin:', origin)
+		console.log('[API] X-Telegram-Init-Data present:', !!req.headers['x-telegram-init-data'])
+
 		if (isAllowedOrigin(origin)) {
 			res.setHeader('Access-Control-Allow-Origin', origin)
 			res.setHeader('Vary', 'Origin')
+		} else if (config.WEBAPP_ORIGINS.length === 0) {
+			// Если whitelist пустой, разрешаем любой origin
+			res.setHeader('Access-Control-Allow-Origin', origin || '*')
 		}
 		res.setHeader(
 			'Access-Control-Allow-Headers',
@@ -2494,6 +2531,12 @@ function startApiServer() {
 
 	app.get('/api/workshops', async (req, res) => {
 		try {
+			const initData = getInitDataFromRequest(req)
+			console.log('[API] /api/workshops initData:', initData ? 'present' : 'missing')
+			if (initData) {
+				const validation = validateWebAppInitData(initData, config.BOT_TOKEN, config.WEBAPP_AUTH_MAX_AGE_SECONDS)
+				console.log('[API] /api/workshops validation:', validation.isValid ? 'OK' : validation.reason)
+			}
 			const workshops = await getWorkshopsList()
 			res.json({
 				ok: true,

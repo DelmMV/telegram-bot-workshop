@@ -151,14 +151,22 @@ export default function HomePage() {
 		const webApp = (window as TelegramWindow).Telegram?.WebApp
 		if (!webApp) {
 			setIsTelegramWebApp(false)
+			console.log('[DEBUG] Telegram.WebApp not found')
 			return
 		}
 
 		webApp.ready()
 		webApp.expand()
-		const fallbackUser = parseTelegramUser(webApp.initData || '')
-		setInitData(webApp.initData || '')
-		setTelegramUser(webApp.initDataUnsafe?.user ?? fallbackUser)
+		const initData = webApp.initData || ''
+		const unsafeUser = webApp.initDataUnsafe?.user ?? null
+		const fallbackUser = parseTelegramUser(initData)
+
+		console.log('[DEBUG] initData length:', initData.length)
+		console.log('[DEBUG] initDataUnsafe.user:', unsafeUser)
+		console.log('[DEBUG] fallbackUser:', fallbackUser)
+
+		setInitData(initData)
+		setTelegramUser(unsafeUser || fallbackUser)
 		applyTelegramTheme(webApp)
 
 		const themeHandler = () => applyTelegramTheme(webApp)
