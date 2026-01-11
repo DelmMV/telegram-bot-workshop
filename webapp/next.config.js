@@ -1,19 +1,26 @@
 /** @type {import('next').NextConfig} */
-const rootPackage = require('../package.json')
-
-const inferredBasePath = process.env.NEXT_PUBLIC_BASE_PATH ||
-	(process.env.NODE_ENV === 'production' && rootPackage.name
-		? `/${rootPackage.name}`
-		: '')
-
 const nextConfig = {
-	output: 'export',
-	basePath: inferredBasePath,
-	assetPrefix: inferredBasePath ? `${inferredBasePath}/` : undefined,
-	trailingSlash: true,
-	images: {
-		unoptimized: true,
-	},
+  // Для Vercel используем стандартную сборку Next.js
+  // Для GitHub Pages нужно будет использовать отдельную сборку
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+  },
+  // Добавляем заголовки для Vercel
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'ALLOWALL' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, X-Telegram-Init-Data' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://telegram.org https://*.telegram.org" }
+        ]
+      }
+    ]
+  }
 }
 
 module.exports = nextConfig

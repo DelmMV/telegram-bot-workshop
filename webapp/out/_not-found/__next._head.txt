@@ -1,5 +1,0 @@
-1:"$Sreact.fragment"
-2:I[4708,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"ViewportBoundary"]
-3:I[4708,["/telegram-bot-workshop/_next/static/chunks/ee1ad25218f58c4a.js"],"MetadataBoundary"]
-4:"$Sreact.suspense"
-0:{"buildId":"0S0bP-kUgF-r3RSmCrroF","rsc":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Рейтинг мастерских"}],["$","meta","1",{"name":"description","content":"Мини-приложение для просмотра рейтингов и отзывов"}]]}]}]}],null]}],"loading":null,"isPartial":false}

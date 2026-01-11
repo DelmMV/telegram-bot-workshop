@@ -1,5 +1,5 @@
 {
-  "outputDirectory": "out",
+  "framework": "nextjs",
   "headers": [
     {
       "source": "/(.*)",
@@ -23,10 +23,6 @@
         {
           "key": "Content-Security-Policy",
           "value": "frame-ancestors 'self' https://telegram.org https://*.telegram.org"
-        },
-        {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
         }
       ]
     }
