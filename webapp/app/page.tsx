@@ -149,22 +149,59 @@ export default function HomePage() {
 	const [isSubmitting, setIsSubmitting] = useState(false)
 
 	useEffect(() => {
-		// Проверяем Telegram WebApp SDK
+		// Функция для парсинга данных из хеша Mini App
+		function parseHashData(): { initData: string; user: TelegramUser | null } | null {
+			const hashData = window.location.hash.substring(1)
+			if (!hashData) return null
+
+			const hashParams = new URLSearchParams(hashData)
+			const tgWebAppData = hashParams.get('tgWebAppData')
+			if (!tgWebAppData) return null
+
+			try {
+				// Декодируем данные
+				const decodedData = decodeURIComponent(tgWebAppData)
+				
+				// Парсим user из строки вида: user={...}&chat_instance=...
+				const userMatch = decodedData.match(/user=([^&]+)/)
+				if (!userMatch) return null
+
+				const userData = JSON.parse(decodeURIComponent(userMatch[1]))
+				
+				return {
+					initData: decodedData,
+					user: userData
+				}
+			} catch (error) {
+				console.error('[DEBUG] Ошибка парсинга хеша:', error)
+				return null
+			}
+		}
+
+		// Проверяем Telegram SDK
 		const webApp = (window as TelegramWindow).Telegram?.WebApp
 		
 		if (!webApp) {
+			console.log('[DEBUG] Telegram.WebApp не найден')
+			
+			// Попытка получить данные из хеша (для Mini App)
+			const hashData = parseHashData()
+			if (hashData) {
+				console.log('[DEBUG] ✅ Данные найдены в хеше:', hashData.user)
+				setInitData(hashData.initData)
+				setTelegramUser(hashData.user)
+				setIsCheckingTelegram(false)
+				return
+			}
+			
+			console.log('[DEBUG] ❌ Нет данных ни от SDK, ни из хеша')
 			setIsTelegramWebApp(false)
 			setIsCheckingTelegram(false)
-			console.log('[DEBUG] Telegram.WebApp not found')
-			console.log('[DEBUG] Available window.Telegram:', (window as TelegramWindow).Telegram)
-			console.log('[DEBUG] Possible reasons:')
-			console.log('  1. App opened outside Telegram')
-			console.log('  2. Telegram SDK not loaded yet')
-			console.log('  3. Browser security restrictions')
 			return
 		}
 
-		// Инициализируем Telegram WebApp
+		// SDK найден - инициализируем
+		console.log('[DEBUG] ✅ Telegram.WebApp найден')
 		webApp.ready()
 		webApp.expand()
 		
@@ -172,19 +209,8 @@ export default function HomePage() {
 		const unsafeUser = webApp.initDataUnsafe?.user ?? null
 		const fallbackUser = parseTelegramUser(initData)
 
-		console.log('[DEBUG] ✅ Telegram WebApp initialized')
-		console.log('[DEBUG] initData length:', initData.length)
-		console.log('[DEBUG] initData sample:', initData.substring(0, 100) + (initData.length > 100 ? '...' : ''))
-		console.log('[DEBUG] initDataUnsafe.user:', unsafeUser)
-		console.log('[DEBUG] fallbackUser:', fallbackUser)
-
-		if (!initData) {
-			console.error('[ERROR] initData is empty! This will cause API authentication to fail.')
-			console.error('[ERROR] Possible causes:')
-			console.error('  1. App opened outside Telegram')
-			console.error('  2. Telegram.WebApp.initData not available')
-			console.error('  3. Browser security restrictions')
-		}
+		console.log('[DEBUG] SDK initData length:', initData.length)
+		console.log('[DEBUG] SDK user:', unsafeUser || fallbackUser)
 
 		// Устанавливаем состояние
 		setInitData(initData)
@@ -527,11 +553,14 @@ export default function HomePage() {
 					<div className="pill">Telegram Mini App</div>
 					<div className="pill">
 						{telegramUser?.first_name
-							? `Вы вошли как ${telegramUser.first_name}`
+							? `Вы вошли как ${telegramUser.first_name}${telegramUser.username ? ' (@' + telegramUser.username + ')' : ''}`
 							: 'Гость'}
 					</div>
 					{workshops.length > 0 && (
 						<div className="pill">Мастерских: {workshops.length}</div>
+					)}
+					{initData.length > 0 && (
+						<div className="pill" style={{ background: '#28a745', color: 'white' }}>✅ Auth OK</div>
 					)}
 				</div>
 			</header>
