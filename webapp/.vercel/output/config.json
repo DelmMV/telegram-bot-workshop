@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/server/app/index" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "ALLOWALL" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-Telegram-Init-Data" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self' https://telegram.org https://*.telegram.org" }
+      ]
+    }
+  ]
+}

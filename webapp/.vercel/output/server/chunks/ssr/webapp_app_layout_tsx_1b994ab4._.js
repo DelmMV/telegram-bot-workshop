@@ -1,0 +1,3 @@
+module.exports=[64537,a=>{"use strict";var b=a.i(95823);function c({children:a}){return(0,b.jsx)("html",{lang:"ru",children:(0,b.jsxs)("body",{children:[(0,b.jsxs)("div",{className:"ambient",children:[(0,b.jsx)("div",{className:"orb orb-a"}),(0,b.jsx)("div",{className:"orb orb-b"}),(0,b.jsx)("div",{className:"orb orb-c"})]}),a]})})}a.s(["default",()=>c,"metadata",0,{title:"Рейтинг мастерских",description:"Мини-приложение для просмотра рейтингов и отзывов"}])}];
+
+//# sourceMappingURL=webapp_app_layout_tsx_1b994ab4._.js.map
