@@ -112,6 +112,7 @@ export default function HomePage() {
 	const [initData, setInitData] = useState('')
 	const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null)
 	const [isTelegramWebApp, setIsTelegramWebApp] = useState(true)
+	const [isCheckingTelegram, setIsCheckingTelegram] = useState(true)
 
 	const [workshops, setWorkshops] = useState<Workshop[]>([])
 	const [workshopsError, setWorkshopsError] = useState('')
@@ -148,21 +149,30 @@ export default function HomePage() {
 	const [isSubmitting, setIsSubmitting] = useState(false)
 
 	useEffect(() => {
+		// Проверяем Telegram WebApp SDK
 		const webApp = (window as TelegramWindow).Telegram?.WebApp
+		
 		if (!webApp) {
 			setIsTelegramWebApp(false)
+			setIsCheckingTelegram(false)
 			console.log('[DEBUG] Telegram.WebApp not found')
 			console.log('[DEBUG] Available window.Telegram:', (window as TelegramWindow).Telegram)
+			console.log('[DEBUG] Possible reasons:')
+			console.log('  1. App opened outside Telegram')
+			console.log('  2. Telegram SDK not loaded yet')
+			console.log('  3. Browser security restrictions')
 			return
 		}
 
+		// Инициализируем Telegram WebApp
 		webApp.ready()
 		webApp.expand()
+		
 		const initData = webApp.initData || ''
 		const unsafeUser = webApp.initDataUnsafe?.user ?? null
 		const fallbackUser = parseTelegramUser(initData)
 
-		console.log('[DEBUG] Telegram WebApp initialized')
+		console.log('[DEBUG] ✅ Telegram WebApp initialized')
 		console.log('[DEBUG] initData length:', initData.length)
 		console.log('[DEBUG] initData sample:', initData.substring(0, 100) + (initData.length > 100 ? '...' : ''))
 		console.log('[DEBUG] initDataUnsafe.user:', unsafeUser)
@@ -176,10 +186,13 @@ export default function HomePage() {
 			console.error('  3. Browser security restrictions')
 		}
 
+		// Устанавливаем состояние
 		setInitData(initData)
 		setTelegramUser(unsafeUser || fallbackUser)
 		applyTelegramTheme(webApp)
+		setIsCheckingTelegram(false)
 
+		// Подписываемся на изменения темы
 		const themeHandler = () => applyTelegramTheme(webApp)
 		webApp.onEvent?.('themeChanged', themeHandler)
 
@@ -188,22 +201,32 @@ export default function HomePage() {
 		}
 	}, [])
 
-	// Проверка доступности API при загрузке
+	// Проверка доступности API при загрузке (только если есть initData)
 	useEffect(() => {
+		if (!initData) {
+			console.log('[DEBUG] Skipping API health check - no initData')
+			return
+		}
+
 		async function checkApiHealth() {
 			try {
 				const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://service.monopiter.ru'}/api/health`)
 				const data = await response.json()
-				console.log('[API] Health check:', data)
+				console.log('[API] ✅ Health check passed:', data)
 			} catch (error) {
 				console.error('[API] ❌ Health check failed:', error)
 				console.error('[API] ❌ API server may be down or CORS not configured')
 			}
 		}
 		checkApiHealth()
-	}, [])
+	}, [initData])
 
 	useEffect(() => {
+		if (!initData) {
+			console.log('[DEBUG] Skipping workshops/seasons load - no initData')
+			return
+		}
+
 		async function loadWorkshops() {
 			setWorkshopsError('')
 			try {
@@ -242,6 +265,11 @@ export default function HomePage() {
 	}, [workshops, reviewsWorkshop, feedbackWorkshop])
 
 	useEffect(() => {
+		if (!initData) {
+			console.log('[DEBUG] Skipping ratings load - no initData')
+			return
+		}
+
 		async function loadRatings() {
 			setRatingsError('')
 			setIsRatingsLoading(true)
@@ -259,7 +287,10 @@ export default function HomePage() {
 	}, [ratingType, initData])
 
 	useEffect(() => {
-		if (!selectedSeasonId) return
+		if (!selectedSeasonId || !initData) {
+			if (!initData) console.log('[DEBUG] Skipping seasonal ratings load - no initData')
+			return
+		}
 
 		async function loadSeasonalRatings() {
 			setSeasonalError('')
@@ -282,7 +313,10 @@ export default function HomePage() {
 	}, [selectedSeasonId, seasonalType, initData])
 
 	useEffect(() => {
-		if (!reviewsWorkshop) return
+		if (!reviewsWorkshop || !initData) {
+			if (!initData) console.log('[DEBUG] Skipping reviews load - no initData')
+			return
+		}
 
 		async function loadReviews() {
 			setReviewsError('')
@@ -393,6 +427,94 @@ export default function HomePage() {
 		}
 	}
 
+	// 🟡 Состояние 1: Проверка Telegram SDK
+	if (isCheckingTelegram) {
+		return (
+			<div className="page">
+				<div className="section" style={{ marginTop: 18 }}>
+					<div className="status">
+						⏳ Проверка Telegram WebApp...
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	// 🔴 Состояние 2: Telegram SDK не найден (приложение вне Telegram)
+	if (!isTelegramWebApp) {
+		return (
+			<div className="page">
+				<header className="hero">
+					<h1>Рейтинг мастерских</h1>
+					<p>Смотрите свежие рейтинги, читайте отзывы и оставляйте свой опыт.</p>
+					<div className="meta">
+						<div className="pill">Telegram Mini App</div>
+						<div className="pill">⚠️ Вне Telegram</div>
+					</div>
+				</header>
+
+				<div className="section" style={{ marginTop: 18 }}>
+					<div className="status error">
+						❌ <strong>Ошибка: Приложение вне Telegram</strong>
+						<br />
+						Это мини-приложение работает только внутри Telegram.
+						<br />
+						<br />
+						<strong>Как запустить правильно:</strong>
+						<br />
+						• Откройте @ВашБот в Telegram
+						<br />
+						• Нажмите кнопку "Открыть мини-приложение"
+						<br />
+						• Или используйте ссылку: t.me/ВашБот?startapp
+						<br />
+						<br />
+						<small>Попробуйте перезапустить через Telegram</small>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	// 🟠 Состояние 3: Telegram SDK есть, но нет initData
+	if (!initData) {
+		return (
+			<div className="page">
+				<header className="hero">
+					<h1>Рейтинг мастерских</h1>
+					<p>Смотрите свежие рейтинги, читайте отзывы и оставляйте свой опыт.</p>
+					<div className="meta">
+						<div className="pill">Telegram Mini App</div>
+						<div className="pill">⚠️ Ошибка данных</div>
+					</div>
+				</header>
+
+				<div className="section" style={{ marginTop: 18 }}>
+					<div className="status error">
+						❌ <strong>Ошибка авторизации</strong>
+						<br />
+						Telegram не передал данные пользователя.
+						<br />
+						<br />
+						<strong>Возможные причины:</strong>
+						<br />
+						• Проблемы с безопасностью браузера
+						<br />
+						• Блокировка сторонних cookie
+						<br />
+						• Использование режима "Инкогнито"
+						<br />
+						• Ошибка в настройках бота
+						<br />
+						<br />
+						<small>Попробуйте: обычный режим браузера + Telegram</small>
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	// 🟢 Состояние 4: Все готово, показываем основной интерфейс
 	return (
 		<div className="page">
 			<header className="hero">
@@ -414,34 +536,21 @@ export default function HomePage() {
 				</div>
 			</header>
 
-			{!isTelegramWebApp && (
+			{/* Показываем предупреждение только если есть данные, но SDK не найден */}
+			{!isTelegramWebApp && initData && (
 				<div className="section" style={{ marginTop: 18 }}>
 					<div className="notice">
-						⚠️ Приложение запущено вне Telegram. Некоторые функции могут не работать.
-						<br />
-						<small>Для полной функциональности откройте через Telegram.</small>
-					</div>
-				</div>
-			)}
-
-			{initData.length === 0 && (
-				<div className="section" style={{ marginTop: 18 }}>
-					<div className="status error">
-						❌ <strong>Ошибка авторизации</strong>
-						<br />
-						Отсутствует initData. Возможные причины:
-						<br />
-						• Открыто вне Telegram
-						• Проблемы с безопасностью браузера
-						• Telegram не передал данные
-						<br />
-						<small>Попробуйте перезапустить приложение через Telegram</small>
+						⚠️ Режим отладки: SDK не загружен, но данные есть
 					</div>
 				</div>
 			)}
 			{workshopsError && (
 				<div className="section" style={{ marginTop: 18 }}>
-					<div className="status error">{workshopsError}</div>
+					<div className="status error">
+						⚠️ {workshopsError}
+						<br />
+						<small>Проверьте соединение с API</small>
+					</div>
 				</div>
 			)}
 
