@@ -1,0 +1,7 @@
+/*
+  X-Frame-Options: ALLOWALL
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, OPTIONS
+  Access-Control-Allow-Headers: Content-Type, X-Telegram-Init-Data
+  Content-Security-Policy: frame-ancestors 'self' https://telegram.org https://*.telegram.org
+  X-Content-Type-Options: nosniff
