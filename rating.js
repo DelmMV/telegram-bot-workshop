@@ -2505,14 +2505,18 @@ function startApiServer() {
 		const origin = req.headers.origin
 		console.log('[API] Incoming request:', req.method, req.url)
 		console.log('[API] Origin:', origin)
+		console.log('[API] Allowed origins:', config.WEBAPP_ORIGINS)
 		console.log('[API] X-Telegram-Init-Data present:', !!req.headers['x-telegram-init-data'])
 
 		if (isAllowedOrigin(origin)) {
+			console.log('[API] ✅ Origin allowed:', origin)
 			res.setHeader('Access-Control-Allow-Origin', origin)
 			res.setHeader('Vary', 'Origin')
 		} else if (config.WEBAPP_ORIGINS.length === 0) {
-			// Если whitelist пустой, разрешаем любой origin
+			console.log('[API] ⚠️  No whitelist, allowing origin:', origin || '*')
 			res.setHeader('Access-Control-Allow-Origin', origin || '*')
+		} else {
+			console.log('[API] ❌ Origin blocked:', origin)
 		}
 		res.setHeader(
 			'Access-Control-Allow-Headers',
@@ -2520,6 +2524,7 @@ function startApiServer() {
 		)
 		res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
 		if (req.method === 'OPTIONS') {
+			console.log('[API] Preflight OPTIONS request handled')
 			return res.status(204).end()
 		}
 		return next()

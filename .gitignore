@@ -7,4 +7,4 @@ node_modules/
 .DS_Store
 AGENTS.md
 webapp/out/
-webapp/.next
+webapp/.nextwebapp/.env.local

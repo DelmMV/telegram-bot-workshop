@@ -152,6 +152,7 @@ export default function HomePage() {
 		if (!webApp) {
 			setIsTelegramWebApp(false)
 			console.log('[DEBUG] Telegram.WebApp not found')
+			console.log('[DEBUG] Available window.Telegram:', (window as TelegramWindow).Telegram)
 			return
 		}
 
@@ -161,9 +162,19 @@ export default function HomePage() {
 		const unsafeUser = webApp.initDataUnsafe?.user ?? null
 		const fallbackUser = parseTelegramUser(initData)
 
+		console.log('[DEBUG] Telegram WebApp initialized')
 		console.log('[DEBUG] initData length:', initData.length)
+		console.log('[DEBUG] initData sample:', initData.substring(0, 100) + (initData.length > 100 ? '...' : ''))
 		console.log('[DEBUG] initDataUnsafe.user:', unsafeUser)
 		console.log('[DEBUG] fallbackUser:', fallbackUser)
+
+		if (!initData) {
+			console.error('[ERROR] initData is empty! This will cause API authentication to fail.')
+			console.error('[ERROR] Possible causes:')
+			console.error('  1. App opened outside Telegram')
+			console.error('  2. Telegram.WebApp.initData not available')
+			console.error('  3. Browser security restrictions')
+		}
 
 		setInitData(initData)
 		setTelegramUser(unsafeUser || fallbackUser)
@@ -175,6 +186,21 @@ export default function HomePage() {
 		return () => {
 			webApp.offEvent?.('themeChanged', themeHandler)
 		}
+	}, [])
+
+	// Проверка доступности API при загрузке
+	useEffect(() => {
+		async function checkApiHealth() {
+			try {
+				const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://service.monopiter.ru'}/api/health`)
+				const data = await response.json()
+				console.log('[API] Health check:', data)
+			} catch (error) {
+				console.error('[API] ❌ Health check failed:', error)
+				console.error('[API] ❌ API server may be down or CORS not configured')
+			}
+		}
+		checkApiHealth()
 	}, [])
 
 	useEffect(() => {
@@ -341,9 +367,26 @@ export default function HomePage() {
 				setReviewsPage(0)
 			}
 		} catch (error) {
+			console.error('[ERROR] Failed to submit review:', error)
+			let errorMessage = 'Не удалось отправить отзыв. '
+			
+			if (error instanceof Error) {
+				if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+					errorMessage += 'Сетевая ошибка. Проверьте соединение.'
+				} else if (error.message.includes('401') || error.message.includes('unauthorized')) {
+					errorMessage += 'Ошибка авторизации. Перезапустите приложение.'
+				} else if (error.message.includes('403')) {
+					errorMessage += 'Доступ запрещен.'
+				} else {
+					errorMessage += `Ошибка: ${error.message}`
+				}
+			} else {
+				errorMessage += 'Попробуйте позже.'
+			}
+			
 			setSubmitStatus({
 				type: 'error',
-				message: 'Не удалось отправить отзыв. Попробуйте позже.',
+				message: errorMessage,
 			})
 		} finally {
 			setIsSubmitting(false)
@@ -374,7 +417,9 @@ export default function HomePage() {
 			{!isTelegramWebApp && (
 				<div className="section" style={{ marginTop: 18 }}>
 					<div className="notice">
-						Откройте мини-приложение внутри Telegram, чтобы использовать все функции.
+						⚠️ Приложение запущено вне Telegram. Некоторые функции могут не работать.
+						<br />
+						<small>Для полной функциональности откройте через Telegram.</small>
 					</div>
 				</div>
 			)}
@@ -382,7 +427,15 @@ export default function HomePage() {
 			{initData.length === 0 && (
 				<div className="section" style={{ marginTop: 18 }}>
 					<div className="status error">
-						Отсутствует initData (длина: 0). Откройте мини‑апп через Telegram.
+						❌ <strong>Ошибка авторизации</strong>
+						<br />
+						Отсутствует initData. Возможные причины:
+						<br />
+						• Открыто вне Telegram
+						• Проблемы с безопасностью браузера
+						• Telegram не передал данные
+						<br />
+						<small>Попробуйте перезапустить приложение через Telegram</small>
 					</div>
 				</div>
 			)}
