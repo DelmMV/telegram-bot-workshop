@@ -2,13 +2,14 @@
   "name": "telegram-bot-workshop-webapp",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "export": "next build",
-    "start": "next start",
-    "deploy": "npm run build && node -e \"require('fs').writeFileSync('out/.nojekyll','')\" && npx gh-pages -d out -b gh-pages --dotfiles"
-  },
+	"scripts": {
+		"dev": "next dev",
+		"build": "next build",
+		"export": "next build",
+		"start": "next start",
+		"lint": "next lint",
+		"deploy": "npm run build && node -e \"require('fs').writeFileSync('out/.nojekyll',''); const headers='/*\\n  X-Frame-Options: ALLOWALL\\n  Access-Control-Allow-Origin: *\\n  Access-Control-Allow-Methods: GET, POST, OPTIONS\\n  Access-Control-Allow-Headers: Content-Type, X-Telegram-Init-Data\\n  Content-Security-Policy: frame-ancestors \\'self\\' https://telegram.org https://*.telegram.org\\n  X-Content-Type-Options: nosniff\\n'; require('fs').writeFileSync('out/_headers', headers); console.log('✅ _headers created')\" && npx gh-pages -d out -b gh-pages --dotfiles"
+	},
   "dependencies": {
     "next": "^16.1.1",
     "react": "^19.2.3",
