@@ -1,10 +1,21 @@
 # IntelliJ project files
 .idea
-#
+
+# Dependencies
 node_modules/
+webapp/node_modules/
+
+# Environment files
 .env
+webapp/.env.local
+
+# Build outputs
+webapp/out/
+webapp/.next/
+webapp/.vercel/
+
 # macOS
 .DS_Store
+
+# Other
 AGENTS.md
-webapp/out/
-webapp/.nextwebapp/.env.local
